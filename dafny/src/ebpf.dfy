@@ -1,11 +1,12 @@
 module parser {
 
+  import opened BoundedInts
+
   datatype BPFProgram = Statements(s: StatementList)
   datatype StatementList = Cons(stmt: Statement, next: StatementList) | EmptyList
 
-  //TODO: Think about whether int is the right datatype for offset (u16) and immediate(u32)
   //TODO: Do we really need Immediate32?
-  datatype Statement = Instruction(op: Op, srcReg: Register, destReg: Register, offset: int, immediate: int) | Immediate32(immediate: int)
+  datatype Statement = Instruction(op: Op, srcReg: Register, destReg: Register, offset: uint16, immediate: uint32) | Immediate32(immediate: uint32)
                        //TODO: Add Legacy BPF Instructions
   datatype Op = ArithmeticOperation(arithmeticInstructionClass: ArithmeticInstructionClass, arithmeticSource: ArithmeticSource, arithmeticOpcode: ArithmeticOpCode) | // BPF_ALU, BPF_ALU64
                 JumpOperation(jumpInstructionClass: JumpInstructionClass, jumpSource: JumpSource, jumpOpcode: JumpOpCode) | // BPF_JMP and BPF_JMP32
