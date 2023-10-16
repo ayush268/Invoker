@@ -50,3 +50,7 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Created files
+*.ll
+ebpf-setup/src/kill-example

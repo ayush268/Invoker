@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   // Find the program with the name "ebpf_kill_example" in the object file
   // This is the name of the function in src/kern.c
   struct bpf_program *prog =
-      bpf_object__find_program_by_name(obj, "kill_example");
+      bpf_object__find_program_by_name(obj, "ebpf_kill_example");
 
   // Check for errors in finding the program
   if (!prog) {
