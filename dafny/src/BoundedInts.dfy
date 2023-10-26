@@ -9,6 +9,7 @@ module BoundedInts {
   newtype uint8 = x:int | 0 <= x < 0x100
   newtype uint16 = x:int | 0 <= x < 0x1_0000
   newtype uint32 = x:int | 0 <= x < 0x1_0000_0000
+  newtype uint64 = x:i
 
 
   type byte = uint8
