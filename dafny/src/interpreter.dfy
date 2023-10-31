@@ -1,22 +1,28 @@
 module eBPFInterpreter {
     import opened BoundedInts
 
+    datatype Re
+
     // Modelling struct bpf_reg_state
-    datatype Register {
+    class RegisterState {
+
         var type: RegisterType;
-        //TODO: Add more things
-        var smin_value: int /* minimum possible (s64)value */
-	s64 smax_value; /* maximum possible (s64)value */
-	u64 umin_value; /* minimum possible (u64)value */
-	u64 umax_value; /* maximum possible (u64)value */
-	s32 s32_min_value; /* minimum possible (s32)value */
-	s32 s32_max_value; /* maximum possible (s32)value */
-	u32 u32_min_value; /* minimum possible (u32)value */
-	u32 u32_max_value; /* maximum possible (u32)value */
+
+        // Range Analysis
+        var smin_value: int64; /* minimum possible (s64)value */
+	    var smax_value: int64; /* maximum possible (s64)value */
+	    var umin_value: uint64; /* minimum possible (u64)value */
+	    var umax_value: uint64; /* maximum possible (u64)value */
+	    var s32_min_value: int32; /* minimum possible (s32)value */
+	    var s32_max_value: int32; /* maximum possible (s32)value */
+	    var u32_min_value: uint32; /* minimum possible (u32)value */
+	    var u32_max_value: uint32; /* maximum possible (u32)value */
+
+        //TODO: Add More stuff
     }
 
     class Registers {
-        var regs: array<Register>;
+        var regs: array<RegisterState>;
     }
 
     class ExecutionContext {
