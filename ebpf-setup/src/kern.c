@@ -1,5 +1,5 @@
 #include <linux/bpf.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 
 #include <bpf/bpf_helpers.h>
 
@@ -39,7 +39,8 @@ int ebpf_kill_example(struct syscalls_enter_kill_args *ctx) {
   // they are not too large and do not use any of the risky operations
   // disallowed by the eBPF verifier. These include, among others,
   // complex loops and floats.
-  long key = labs(ctx->pid);
+  //long key = labs(ctx->pid);
+  long key = 2608;
   int val = 1;
 
   // Mark the PID as killed in the map.
