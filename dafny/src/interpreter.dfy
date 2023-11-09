@@ -8,14 +8,14 @@ module eBPFInterpreter {
 	import opened types
     
 	// Modelling struct bpf_verifier_state
-	class BpfVerifierState {
+	/*class BpfVerifierState {
 		/* call stack tracking */
 		var bpf_func_state: array<BpfFuncState>
 		var parent: BpfVerifierState
 
 		var branches_count : uint32
 		
-	}
+	}*/
 
 	// Modelling struct bpf_func_state
 	class BpfFuncState {
@@ -102,7 +102,7 @@ module eBPFInterpreter {
 		}
     
 
-		method runInstruction(op: Op, srcReg: Register, destReg: Register, offset: int16, immediate: int32) returns (result: ExecutionContext) {
+		method runInstruction(op: Op, srcReg: Register, destReg: Register, offset: int16, immediate: int32) {
 			match op {
 				case ArithmeticOperation(arithmeticInstructionClass, arithmeticSource, arithmeticOpcode) => {
 					var source_immediate: bool := arithmeticSource == ArithmeticSource.BPF_K;
@@ -128,7 +128,7 @@ module eBPFInterpreter {
 		method executeStatement(stmt: Statement) {
 			match stmt {
 				case Instruction(op, srcReg, destReg, offset, immediate) => { 
-					var result := runInstruction(op, srcReg, destReg, offset, immediate);
+					runInstruction(op, srcReg, destReg, offset, immediate);
 				}
 				case Immediate32(immediate) => { }
 			}
@@ -160,7 +160,7 @@ module eBPFInterpreter {
 		//TODO: Check whether all the jumps in a function land inside the function
 		//TODO: Run check_cfg() on the program
 		
-		var env : BPFVerifierEnv := BPFVerifierEnv();
-
+		//var env : BPFVerifierEnv := BPFVerifierEnv();
+		valid := true;
 	}
 }
