@@ -51,6 +51,9 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+# Generated Runtime Configs
+*.runtimeconfig.json
+
 # Created files
 *.ll
 ebpf-setup/src/kill-example

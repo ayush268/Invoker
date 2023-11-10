@@ -2,18 +2,18 @@ module parser {
 
   import opened BoundedInts
 
-  datatype BPFProgram = Statements(s: StatementList)
-  datatype StatementList = Cons(stmt: Statement, next: StatementList) | EmptyList
+  datatype BPFProgram = Statements(s: seq<Statement>)
+  //datatype StatementList = Cons(stmt: Statement, next: StatementList) | EmptyList
 
   //TODO: Do we really need Immediate32?
-  datatype Statement = Instruction(op: Op, srcReg: Register, destReg: Register, offset: int16, immediate: int32) | Immediate32(immediate: int32)
+  datatype Statement = Instruction(op: Op, srcReg: RegisterOrUnused, destReg: RegisterOrUnused, offset: int16, immediate: int32) | Immediate32(immediate: int32)
                        //TODO: Add Legacy BPF Instructions
   datatype Op = ArithmeticOperation(arithmeticInstructionClass: ArithmeticInstructionClass, arithmeticSource: ArithmeticSource, arithmeticOpcode: ArithmeticOpCode) | // BPF_ALU, BPF_ALU64
                 JumpOperation(jumpInstructionClass: JumpInstructionClass, jumpSource: JumpSource, jumpOpcode: JumpOpCode) | // BPF_JMP and BPF_JMP32
                 ByteSwapOperation(byteSwapInstructionClass: ByteSwapInstructionClass, byteSwapSource: ByteSwapSource, byteSwapOpcode: ByteSwapOpCode) | // BPF_ALU
                 LoadOperation(loadInstructionClass: LoadInstructionClass, loadSize: LoadSize, loadMode: LoadMode) | // BPF_LD | BPF_LDX
                 StoreOperation(storeInstructionClass: StoreInstructionClass, storeSize: StoreSize, storeMode: StoreMode) | // BPF_ST | BPF_STX
-                SignedLoadOperation(signedLoadInstructionClass: SignedLoadInstructionClass, signedLoadSize: SignedLoadSize, signedLoadMode: SignedLoadMode) | 
+                SignedLoadOperation(signedLoadInstructionClass: SignedLoadInstructionClass, signedLoadSize: SignedLoadSize, signedLoadMode: SignedLoadMode) |
                 AtomicOperation(atomicInstructionClass: AtomicInstructionClass, atomicSize: AtomicSize, atomicMode: AtomicMode, atomicOp: AtomicOp, shouldFetch: bool) |
                 //TODO: Do we really need this separation here?
                 Immediate64Operation(immediate64InstructionClass: Immediate64InstructionClass, immediate64Size: Immediate64Size, immediate64Mode: Immediate64Mode, subtype: Immediate64Type)
@@ -62,11 +62,13 @@ module parser {
   datatype ModeType = LoadMode(loadmode: LoadMode) | StoreMode(storemode: StoreMode) | AtomicMode(atomicmode: AtomicMode) | Immediate64Mode(imm64mode: Immediate64Mode)
 
   datatype Register = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10
+  datatype RegisterOrUnused = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | UNUSED
 
-  method print_statements(prog: StatementList) {
-    match prog {
-      case Cons(s, n) => { print s; print_statements(n); }
-      case EmptyList => {}
+  method print_statements(prog: seq<Statement>) {
+    var i: int := 0;
+    while i < |prog| {
+      print prog[i];
+      i := i + 1;
     }
   }
 
@@ -81,7 +83,7 @@ module parser {
   }
 
   method Main() {
-    var t := EmptyList;
+    var t := [];
     var prog : BPFProgram := Statements(t);
     print_statements(prog.s);
   }
