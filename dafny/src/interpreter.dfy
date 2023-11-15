@@ -7,161 +7,145 @@ module eBPFInterpreter {
   import opened parser
   import opened types
 
-  // Modelling struct bpf_verifier_state
-  /*class BpfVerifierState {
-   /* call stack tracking */
-   var bpf_func_state: array<BpfFuncState>
-   var parent: BpfVerifierState
- 
-   var branches_count : uint32
-   
-  }*/
-
-  // Modelling struct bpf_func_state
-  class BpfFuncState {
-
-  }
-
-  // Modelling struct bpf_reg_state
-  class AbstractRegisterState {
-
-    var typ: RegisterType
-
-    // Range Analysis
-    var smin_value: int64 /* minimum possible (s64)value */
-    var smax_value: int64 /* maximum possible (s64)value */
-    var umin_value: uint64 /* minimum possible (u64)value */
-    var umax_value: uint64 /* maximum possible (u64)value */
-    var s32_min_value: int32 /* minimum possible (s32)value */
-    var s32_max_value: int32 /* maximum possible (s32)value */
-    var u32_min_value: uint32 /* minimum possible (u32)value */
-    var u32_max_value: uint32 /* maximum possible (u32)value */
-
-    constructor() {
-      typ := NOT_INIT;
-    }
-
-    //TODO: Add More stuff
-  }
-
-  class ConcreteRegisterState {
-    var value: uint64
-
-    constructor() {
-      value := 0;
-    }
-  }
-
-  class Registers {
-    var abs_regs: array<AbstractRegisterState>
-    var concrete_regs: array<ConcreteRegisterState>
-
-    constructor (num_regs: uint64)
-    {
-      var abs := new AbstractRegisterState();
-      abs_regs := new AbstractRegisterState[num_regs](_ => abs);
-
-      var conc := new ConcreteRegisterState();
-      concrete_regs := new ConcreteRegisterState[num_regs](_ => conc);
-    }
-  }
-
-  class Map {
-    //TODO: Convert these to enums?
-    var key_typ: uint64
-    var val_typ: uint64
-
-    //TODO: Model Key value pairs
-
-  }
-
-  method RegisterToInt(reg: RegisterOrUnused) returns (y: uint8) {
+  function RegisterToInt(reg: RegisterOrUnused): uint8
+  {
     match reg {
-      case R0 => { y := 0; }
-      case R1 => { y := 1; }
-      case R2 => { y := 2; }
-      case R3 => { y := 3; }
-      case R4 => { y := 4; }
-      case R5 => { y := 5; }
-      case R6 => { y := 6; }
-      case R7 => { y := 7; }
-      case R8 => { y := 8; }
-      case R9 => { y := 9; }
-      case R10 => { y := 10; }
-      case UNUSED => { y := 0; }
+      case R0 => 0
+      case R1 => 1
+      case R2 => 2
+      case R3 => 3
+      case R4 => 4
+      case R5 => 5
+      case R6 => 6
+      case R7 => 7
+      case R8 => 8
+      case R9 => 9
+      case R10 => 10
+      case UNUSED => 0
     }
   }
 
-  class ExecutionContext {
-    var regs: Registers
-    var maps: array<Map>
-    var pc: uint64
 
-    constructor(n: uint64) {
-      regs := new Registers(n);
-      pc := 0;
-    }
-
-
-    method runInstruction(op: Op, srcReg: RegisterOrUnused, destReg: RegisterOrUnused, offset: int16, immediate: int32) {
-      match op {
-        case ArithmeticOperation(arithmeticInstructionClass, arithmeticSource, arithmeticOpcode) => {
-          var source_immediate: bool := arithmeticSource == ArithmeticSource.BPF_K;
-          var width_64: bool := arithmeticInstructionClass == ArithmeticInstructionClass.BPF_ALU64;
-
-          match arithmeticOpcode {
-            case BPF_ADD => {
-              var src_reg: uint8 := RegisterToInt(srcReg);
-              var dst_reg: uint8 := RegisterToInt(destReg);
-              // TODO: How to do signed addition here?
-              // regs.concrete_regs[dst_reg] := regs.concrete_regs[dst_reg] + if source_immediate then immediate else regs.concrete_regs[src_reg];
-
-            }
-
-            case default => { }
-          }
-        }
-
-        case default => { print ("unimplemented"); }
-      }
-    }
-
-    method executeStatement(stmt: Statement) {
-      match stmt {
-        case Instruction(op, srcReg, destReg, offset, immediate) => {
-          runInstruction(op, srcReg, destReg, offset, immediate);
-        }
-        case Immediate32(immediate) => { }
-      }
-    }
-
-    method executeStatementList(s: seq<Statement>) {
-      if |s| == 0 {
-        return;
-      }
-
-      executeStatement(s[0]);
-      executeStatementList(s[1..]);
-    }
-
+  function unInitRegisterState(): BPFRegState
+    //ensures unInitRegisterState().BPFRegState?
+  {
+    var ret: BPFRegState := BPFRegState(NOT_INIT, 0, TristateNum(0, 0),
+                                        0, 0,
+                                        0, 0,
+                                        0, 0,
+                                        0, 0,
+                                        0, EmptyRegState, 0, REG_LIVE_NONE);
+    ret
   }
 
-  method executeProgram(prog: BPFProgram) {
-    var ctx: ExecutionContext := new ExecutionContext(11);
+  //TODO: Currently sets regs to the initial state assuming one function per program
+  function createNewFuncState(): BPFFuncState
+    //ensures |createNewFuncState().regs| == 11
+  {
+    var regs: seq<BPFRegState> := [unInitRegisterState(), unInitRegisterState(), unInitRegisterState(), unInitRegisterState(),
+                                   unInitRegisterState(), unInitRegisterState(), unInitRegisterState(), unInitRegisterState(),
+                                   unInitRegisterState(), unInitRegisterState(), unInitRegisterState()];
 
-    match prog {
-      case Statements(s) => {
-        ctx.executeStatementList(s);
-      }
-    }
+    var ret: BPFFuncState := BPFFuncState(regs);
+    ret
   }
 
-  method runVerifier(prog: BPFProg) returns (valid: bool) {
+  function markRegWithType(regs: seq<BPFRegState>, regno: int, typ: RegisterType): seq<BPFRegState>
+    requires 0 <= regno < |regs|
+    requires forall idx :: 0 <= idx < |regs| ==> regs[idx].BPFRegState?
+  {
+    regs[regno := regs[regno].(typ := typ)]
+  }
+
+  //TODO: Assume a single frame for now
+  function createNewBPFVerifierState(): BPFVerifierState {
+    var ret: BPFVerifierState := BPFVerifierState([createNewFuncState()], EmptyVerifierState, 1, 0, 0, 0, 0, []);
+    ret
+  }
+
+  //TODO: Instruction idx initialized to 0 assuming a single function program
+  function createNewBPFVerifierEnv(prog: BPFProg): BPFVerifierEnv
+    //ensures createNewBPFVerifierEnv(prog).insn_idx as int <= |prog.prog.s|
+  {
+    var ret: BPFVerifierEnv := BPFVerifierEnv(0, 0, prog, [], createNewBPFVerifierState(), [[]], []);
+    ret
+  }
+
+  function checkRegArg(env: BPFVerifierEnv, reg: RegisterOrUnused, argType: RegisterArgType): bool {
+    false
+  }
+
+  predicate check_mem_access(env: BPFVerifierEnv, insn_idx: uint32, register: RegisterOrUnused,
+                             offset: int16, size: LoadSize, t: BPFAccessType, value_register: RegisterOrUnused, strict_alignment_once: bool) {
+    true
+  }
+
+  function cur_regs(env: BPFVerifierEnv): seq<BPFRegState>
+    requires env.cur_state.BPFVerifierState?
+    requires env.cur_state.curframe as int < |env.cur_state.frame|
+  {
+    env.cur_state.frame[env.cur_state.curframe].regs
+  }
+
+  // Assumes that the program has just a single global function
+  method runVerifier(program: BPFProg) returns (valid: bool)
+    requires |program.prog.s| > 0
+    requires forall idx :: 0 <= idx < |program.prog.s| ==> program.prog.s[idx].Instruction?
+  {
     //TODO: separate programs into subprograms (functions)
     //TODO: Check whether all the jumps in a function land inside the function
     //TODO: Run check_cfg() on the program
 
-    //var env : BPFVerifierEnv := BPFVerifierEnv();
+    // Question: How to model function pointers?
+    var env : BPFVerifierEnv := createNewBPFVerifierEnv(program);
+    //TODO: Finish initializing function args (PTR_CTX) for the main function
+    //TODO: Analyze the first instruction of the kill_example, how is the pointer manipulated
+
+    // Updating R1 to PTR_TO_CTX
+    var func_frame : BPFFuncState := env.cur_state.frame[0].(regs := markRegWithType(env.cur_state.frame[0].regs, 1, RegisterType.PTR_TO_CTX));
+    env := env.(cur_state := env.cur_state.(frame := [func_frame]));
+
+    // TODO: Mark Register as known immediate(0)
+    // But already init to zero
+
+    //TODO: Check BTF for function argument correctness
+    var prev_insn_idx: int := -1;
+
+    while true {
+      //TODO: Implement is_state_visited
+
+      // Question: can we get counter example?
+      var instruction := program.prog.s[env.insn_idx];
+      var err := false;
+      // Question why can destructors be used only with values constructed using the constructor?
+      match instruction.op {
+        case LoadOperation(cls, loadSize, loadMode) => {
+          // r1 = PTR_TO_CTX
+          // r1 = *(u64 *)(r1 + 0x18)
+          if cls == LoadInstructionClass.BPF_LDX {
+
+            var srcRegNo := RegisterToInt(instruction.srcReg);
+
+            // Question: How to update nested structs in a better way?
+            err := checkRegArg(env, instruction.srcReg, SRC_OP) || checkRegArg(env, instruction.destReg, DST_OP_NO_MARK) ||
+                   check_mem_access(env, env.insn_idx, instruction.srcReg,
+                                    instruction.offset, loadSize, BPF_READ, instruction.destReg, false); // Checks memory access and updates the abstract state of the register
+
+            //TODO: Implement AUX ptr type
+            //err := err || saveAuxPtrType(env, cur_regs(env)[srcRegNo], false);
+          }
+        }
+
+        case default => {}
+      }
+
+      break;
+    }
+
+
+
+
     valid := true;
+
   }
 }

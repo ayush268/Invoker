@@ -1,10 +1,13 @@
 include "BoundedInts.dfy"
 include "datastructures/stack.dfy"
+include "ebpf.dfy"
 
 module types {
 
   import opened BoundedInts
   import opened stack
+  import opened parser
+
   datatype RegisterType = NOT_INIT /* nothing was written into register */ |
                           SCALAR_VALUE /* reg doesn't contain a valid pointer */ |
                           PTR_TO_CTX /* reg points to bpf_context */ |
@@ -49,11 +52,51 @@ module types {
   datatype PTR_TO_BTF_ID_OR_NULL = PTR_MAYBE_NULL | PTR_TO_BTF_ID
 
   //TODO: struct bpf_prog
-  datatype BPFProg = BPFProg
 
+  datatype BPFProg = BPFProg(prog: BPFProgram)
+
+  datatype TristateNum = TristateNum(value: uint64, mask: uint64)
+
+  datatype RegisterArgType = SRC_OP | DST_OP | DST_OP_NO_MARK
+
+  datatype BPFAccessType = BPF_READ | BPF_WRITE
+
+  /* Liveness marks, used for registers and spilled-regs (in stack slots).
+   * Read marks propagate upwards until they find a write mark; they record that
+   * "one of this state's descendants read this reg" (and therefore the reg is
+   * relevant for states_equal() checks).
+   * Write marks collect downwards and do not propagate; they record that "the
+   * straight-line code that reached this state (from its parent) wrote this reg"
+   * (and therefore that reads propagated from this state or its descendants
+   * should not propagate to its parent).
+   * A state with a write mark can receive read marks; it just won't propagate
+   * them to its parent, since the write mark is a property, not of the state,
+   * but of the link between it and its parent.  See mark_reg_read() and
+   * mark_stack_slot_read() in kernel/bpf/verifier.c.
+ 
+  enum bpf_reg_liveness {
+   REG_LIVE_NONE = 0, /* reg hasn't been read or written this branch */
+   REG_LIVE_READ32 = 0x1, /* reg was read, so we're sensitive to initial value */
+   REG_LIVE_READ64 = 0x2, /* likewise, but full 64-bit content matters */
+   REG_LIVE_READ = REG_LIVE_READ32 | REG_LIVE_READ64,
+   REG_LIVE_WRITTEN = 0x4, /* reg was written first, screening off later reads */
+   REG_LIVE_DONE = 0x8, /* liveness won't be updating this register anymore */
+  };*/
+  datatype BPFRegLiveness = REG_LIVE_NONE | REG_LIVE_READ32 | REG_LIVE_READ64 | REG_LIVE_READ | REG_LIVE_WRITTEN | REG_LIVE_DONE
+
+  //TODO: Add more fields
+  datatype BPFRegState = BPFRegState(typ: RegisterType, offset: int32, var_off: TristateNum,
+                                     smin_value: int64, smax_value: int64,
+                                     umin_value: uint64,  umax_value: uint64,
+                                     s32_min_value: int32, s32_max_value: int32,
+                                     u32_min_value: uint32, u32_max_value: uint32,
+                                     id: uint32, parent: BPFRegState, frameno: uint32, live: BPFRegLiveness) | EmptyRegState
+
+  datatype BPFFuncState = BPFFuncState(regs: seq<BPFRegState>)
 
   //TODO: struct bpf_verifier_state st;
-  datatype BPFVerifierState = BPFVerifierState
+  datatype BPFVerifierState = BPFVerifierState(frame: seq<BPFFuncState>, parent: BPFVerifierState, branches: uint32,
+                                               insn_idx: uint32, curframe: uint32, first_insn_idx: uint32, last_insn_idx: uint32, jmp_history: seq<(uint32, uint32)>) | EmptyVerifierState
 
   datatype BPFVerifierStateList = BPFVerifierStateList(state: BPFVerifierState, next: BPFVerifierStateList, miss_cnt: int, hit_cnt: int) | EmptyList
 
@@ -160,25 +203,23 @@ module types {
     prev_insn_idx: uint32,
     prog: BPFProg,
     //TODO: const struct bpf_verifier_ops *ops;
-    head: stack<BPFVerifierStackElem>,
+    head: seq<BPFVerifierStackElem>,
     //TODO: Do we need stack_stize?
-    strict_alignment: bool,
-    test_state_freq: bool,
     cur_state: BPFVerifierState,
-    explored_states: BPFVerifierStateList,
-    free_list: BPFVerifierState,
+    explored_states: seq<seq<BPFVerifierState>>,
+    free_list: seq<BPFVerifierState>
     //TODO: used_maps
     //TODO: used_btfs
-    used_map_cnt: uint32,
-    used_btf_cnt: uint32,
-    id_gen: uint32,
-    explore_alu_limits: bool,
-    allow_ptr_leaks : bool,
-    allow_uninit_stack : bool,
-    bpf_capable : bool,
-    bypass_spec_v1 : bool,
-    bypass_spec_v4 : bool,
-    seen_direct_write : bool
+    //used_map_cnt: uint32,
+    //used_btf_cnt: uint32,
+    //id_gen: uint32,
+    //explore_alu_limits: bool,
+    //allow_ptr_leaks : bool,
+    //allow_uninit_stack : bool,
+    //bpf_capable : bool,
+    //bypass_spec_v1 : bool,
+    //bypass_spec_v4 : bool,
+    //seen_direct_write : bool
     // TODO: Add more fields
   )
 }
