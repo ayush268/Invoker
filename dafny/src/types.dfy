@@ -1,12 +1,12 @@
 include "BoundedInts.dfy"
-include "datastructures/stack.dfy"
 include "ebpf.dfy"
 
 module types {
 
   import opened BoundedInts
-  import opened stack
   import opened parser
+
+  datatype Option<T> = Some(elem: T) | None
 
   datatype RegisterType = NOT_INIT /* nothing was written into register */ |
                           SCALAR_VALUE /* reg doesn't contain a valid pointer */ |
@@ -90,13 +90,13 @@ module types {
                                      umin_value: uint64,  umax_value: uint64,
                                      s32_min_value: int32, s32_max_value: int32,
                                      u32_min_value: uint32, u32_max_value: uint32,
-                                     id: uint32, parent: BPFRegState, frameno: uint32, live: BPFRegLiveness) | EmptyRegState
+                                     id: uint32, parent: Option<BPFRegState>, frameno: uint32, live: BPFRegLiveness)
 
   datatype BPFFuncState = BPFFuncState(regs: seq<BPFRegState>)
 
   //TODO: struct bpf_verifier_state st;
-  datatype BPFVerifierState = BPFVerifierState(frame: seq<BPFFuncState>, parent: BPFVerifierState, branches: uint32,
-                                               insn_idx: uint32, curframe: uint32, first_insn_idx: uint32, last_insn_idx: uint32, jmp_history: seq<(uint32, uint32)>) | EmptyVerifierState
+  datatype BPFVerifierState = BPFVerifierState(frame: seq<BPFFuncState>, parent: Option<BPFVerifierState>, branches: uint32,
+                                               insn_idx: uint32, curframe: uint32, first_insn_idx: uint32, last_insn_idx: uint32, jmp_history: seq<(uint32, uint32)>)
 
   datatype BPFVerifierStateList = BPFVerifierStateList(state: BPFVerifierState, next: BPFVerifierStateList, miss_cnt: int, hit_cnt: int) | EmptyList
 
@@ -121,9 +121,9 @@ module types {
                                     st: BPFVerifierState,
                                     insn_idx: int64,
                                     prev_insn_idx: int64,
-                                    next: BPFVerifierStackElem,
+                                    next: Option<BPFVerifierStackElem>,
                                     log_pos: uint32
-                                  ) | EmptyStackElem
+                                  )
 
   /* Linux 6.5.3
    struct bpf_verifier_env {

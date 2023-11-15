@@ -34,7 +34,7 @@ module eBPFInterpreter {
                                         0, 0,
                                         0, 0,
                                         0, 0,
-                                        0, EmptyRegState, 0, REG_LIVE_NONE);
+                                        0, None, 0, REG_LIVE_NONE);
     ret
   }
 
@@ -59,7 +59,7 @@ module eBPFInterpreter {
 
   //TODO: Assume a single frame for now
   function createNewBPFVerifierState(): BPFVerifierState {
-    var ret: BPFVerifierState := BPFVerifierState([createNewFuncState()], EmptyVerifierState, 1, 0, 0, 0, 0, []);
+    var ret: BPFVerifierState := BPFVerifierState([createNewFuncState()], None, 1, 0, 0, 0, 0, []);
     ret
   }
 
