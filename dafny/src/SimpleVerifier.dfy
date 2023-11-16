@@ -119,9 +119,11 @@ module AbstractEval {
         var v2 := env.rs(r2);
         Interval(v1.lo + v2.lo, v1.hi + v2.hi)
       case Sub(r1, r2) =>
+        // this was quite buggy initially: low is bounded (due to saturating
+        // subtraction), and upper bound also should cannot go negative
         var v1 := env.rs(r1);
         var v2 := env.rs(r2);
-        Interval(v1.lo - v2.hi, v1.hi - v2.lo)
+        Interval(0, if v1.hi - v2.lo >= 0 then v1.hi - v2.lo else 0)
     }
   }
 
@@ -178,4 +180,52 @@ module AbstractEval {
   {
     has_valid_jump_targets_ok_helper(ss, 0);
   }
+}
+
+module AbstractEvalProof {
+  import opened Ints
+  import opened Lang
+  import E = ConcreteEval
+  import opened AbstractEval
+
+  /* What does it mean for a concrete state to be captured by an abstract state?
+   * (Alternately, interpret each abstract state as a set of concrete states) */
+
+  ghost predicate reg_included(c_v: u32, v: Val) {
+    v.lo <= c_v as int <= v.hi
+  }
+
+  ghost predicate state_included(env: E.State, abs: AbstractState) {
+    forall r: Reg :: reg_included(env(r), abs.rs(r))
+  }
+
+  lemma expr_eval_ok(env: E.State, abs: AbstractState, e: Expr)
+    requires state_included(env, abs)
+    requires E.expr_eval(env, e).Some?
+    ensures reg_included(E.expr_eval(env, e).v, expr_eval(abs, e))
+  {
+    match e {
+      case Add(_, _) => { return; }
+      case Const(_) => { return; }
+      case Sub(r1, r2) => {
+        /* debugging bug in the abstract interpretation */
+        assert reg_included(env(r1), abs.rs(r1));
+        assert reg_included(env(r2), abs.rs(r2));
+        assert env(r1) as int <= abs.rs(r1).hi;
+        assert env(r2) as int >= abs.rs(r2).lo;
+        if env(r1) <= env(r2) {
+          assert E.expr_eval(env, e).v == 0;
+          return;
+        }
+        assert E.expr_eval(env, e).v as int == env(r1) as int - env(r2) as int;
+        return;
+      }
+    }
+  }
+
+  lemma stmt_eval_ok(env: E.State, abs: AbstractState, stmt: Stmt)
+    requires state_included(env, abs)
+    requires E.stmt_step(env, stmt).Some?
+    ensures state_included(E.stmt_step(env, stmt).v.0, stmt_eval(abs, stmt).0)
+  {}
 }
