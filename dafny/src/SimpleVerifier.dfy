@@ -67,7 +67,7 @@ module ConcreteEval {
           case Some(v) => Some((update_state(env, r, v), 1))
           case None => None
         }
-      case JmpZero(r: Reg, offset: u32) =>
+      case JmpZero(r, offset) =>
         Some((env, (if env(r) == 0 then offset else 1) as int))
     }
   }
@@ -125,4 +125,57 @@ module AbstractEval {
     }
   }
 
+  function update_state(env: AbstractState, r0: Reg, v: Val): AbstractState {
+    AbstractState((r: Reg) => if r == r0 then v else env.rs(r))
+  }
+
+  // function stmt_step(env: State, s: Stmt): Option<(State, int)>
+  function stmt_eval(env: AbstractState, s: Stmt): (AbstractState, set<int>) {
+    match s {
+      case Assign(r, e) => var v := expr_eval(env, e);
+                           (update_state(env, r, v), {1 as int})
+      case JmpZero(r, offset) =>
+        // imprecise analysis: we don't try to prove that this jump is or isn't taken
+        (env, {offset as int, 1})
+    }
+  }
+
+  /* TODO(tej): to interpret a program, we need to explore all paths. Along the
+   * way, we would have to look for loops - our plan is to disallow them (unlike
+   * a normal abstract interpretation which would try to run till a fixpoint). */
+
+  // Implement a check for just the jump targets, which are static and thus
+  // don't even need abstract interpretation.
+
+  // Check that jump targets ss[from..] are valid.
+  function has_valid_jump_targets(ss: seq<Stmt>, from: nat): bool
+    decreases |ss|-from
+    requires from <= |ss|
+  {
+    if from == |ss| then true
+    else (match ss[from] {
+            case JmpZero(_, offset) =>
+              0 <= from + offset as int <= |ss|
+            case _ => true
+          } &&
+          has_valid_jump_targets(ss, from+1))
+  }
+
+  ghost predicate valid_jump_targets(ss: seq<Stmt>) {
+    forall i | 0 <= i < |ss| :: ss[i].JmpZero? ==> 0 <= i + ss[i].offset as int <= |ss|
+  }
+
+  lemma has_valid_jump_targets_ok_helper(ss: seq<Stmt>, from: nat)
+    requires from <= |ss|
+    decreases |ss|-from
+    ensures has_valid_jump_targets(ss, from) <==>
+            (forall i | from <= i < |ss| :: ss[i].JmpZero? ==> 0 <= i + ss[i].offset as int <= |ss|)
+  {
+  }
+
+  lemma has_valid_jump_targets_ok(ss: seq<Stmt>)
+    ensures has_valid_jump_targets(ss, 0) <==> valid_jump_targets(ss)
+  {
+    has_valid_jump_targets_ok_helper(ss, 0);
+  }
 }
