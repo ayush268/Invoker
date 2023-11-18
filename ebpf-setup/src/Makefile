@@ -7,7 +7,7 @@ LDFLAGS ?= -L$(LIBBPF_DIR)
 
 LIBS = -lbpf -lelf
 
-all: $(TARGET) kern.o
+all: $(TARGET) kern.o add_example.o
 
 .PHONY: clean
 
@@ -28,3 +28,13 @@ kern.o: kern.c
 	    -Werror \
 	    -O2 -emit-llvm -c -g kern.c
 	llc -march=bpf -filetype=obj -o kern.o kern.ll
+add_example.o: add_example.c
+	clang -S \
+            -target bpf \
+            -D __BPF_TRACING__ \
+            $(CFLAGS) \
+            -Wall \
+            -Werror \
+            -O0 -emit-llvm -c -g add_example.c
+	llc -march=bpf -filetype=obj -o add_example.o add_example.ll
+
