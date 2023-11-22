@@ -8,6 +8,8 @@ module types {
 
   datatype Option<T> = Some(elem: T) | None
 
+  datatype Error = ALUInstructionError | Success
+
   datatype RegisterType = NOT_INIT /* nothing was written into register */ |
                           SCALAR_VALUE /* reg doesn't contain a valid pointer */ |
                           PTR_TO_CTX /* reg points to bpf_context */ |
@@ -118,12 +120,12 @@ module types {
 
     */
   datatype BPFVerifierStackElem = BPFVerifierStackElem(
-                                    st: BPFVerifierState,
-                                    insn_idx: int64,
-                                    prev_insn_idx: int64,
-                                    next: Option<BPFVerifierStackElem>,
-                                    log_pos: uint32
-                                  )
+    st: BPFVerifierState,
+    insn_idx: int64,
+    prev_insn_idx: int64,
+    next: Option<BPFVerifierStackElem>,
+    log_pos: uint32
+  )
 
   /* Linux 6.5.3
    struct bpf_verifier_env {

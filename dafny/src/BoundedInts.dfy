@@ -16,6 +16,16 @@ module BoundedInts {
   const TWO_TO_THE_56:  int := 0x1000000_00000000
   const TWO_TO_THE_64:  int := 0x1_00000000_00000000
 
+  const S64_MIN : int64 := -0x8000_0000_0000_0000
+  const S64_MAX : int64 := (0x8000_0000_0000_0000 - 1) as int64
+  const U64_MIN : uint64 := 0
+  const U64_MAX : uint64 := (TWO_TO_THE_64 - 1) as uint64
+
+  const S32_MIN : int32 := -0x8000_0000
+  const S32_MAX : int32:= (0x8000_0000 - 1) as int32
+  const U32_MIN : uint32 := 0
+  const U32_MAX : uint32 := 0x8000_0000 - 1
+
 
   newtype int8  = x: int  | -0x80 <= x < 0x80
   newtype int16 = x: int  | -0x8000 <= x < 0x8000

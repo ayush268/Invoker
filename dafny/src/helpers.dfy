@@ -1,3 +1,5 @@
+include "BoundedInts.dfy"
+
 module helpers {
 
   import opened BoundedInts
@@ -12,5 +14,20 @@ module helpers {
     else
       a as int64
   }
+
+  function signed32_to_unsigned64(a: int32): uint64 {
+    if a < 0 then
+      (TWO_TO_THE_32 + (a as int)) as uint64
+    else
+      a as uint64
+  }
+
+  function signed32_to_unsigned32(a: int32): uint32 {
+    if a < 0 then
+      (TWO_TO_THE_32 + (a as int)) as uint32
+    else
+      a as uint32
+  }
+
 
 }
