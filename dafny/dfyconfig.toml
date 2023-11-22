@@ -1,1 +1,1 @@
-includes = ["src/**/*.dfy"]
+includes = ["abstract-interpreter/**/*.dfy"]
