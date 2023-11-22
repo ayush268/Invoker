@@ -94,14 +94,36 @@ module Types {
 
     // Possible register values
     datatype Register = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10
+    type RegisterValue = int64
 
+    // TODO: Add eBPF Map functionality for required instructions
     // datatype eBPFMap<T, eBPFValue> =
     // datatype eBPFValue = Hash(size: int, data: u32)
 
-    // TODO: Environment Map
-    // Memory, register values, ebpf map ->
-    // newtype Memory = map<int, int64>
-    // datatype EnvironmentMap = TBD
+    // Memory Management for execution
+    // Defining our own custom memory map
+    type Memory = int
+    // For maintaining a list of memory available
+    type MemoryList = seq<Memory>
+
+    // Types of values which can be stored
+    type Literal = int
+    // TODO: Expand this value type as needed
+    datatype Value = Lit(val: Literal)
+
+    // TODO: Currently using direct memory to value map
+    // Do we need equivalence classes and a unification algo here ?
+    type MemoryToValueMap = map<Memory, Value>
+
+    // TODO: Environment Variables to keep track of
+    // Memory, register values, eBPF Maps
+
+    // TODO: Update this to one with eq class if we are using that
+    type AssignmentStore = MemoryToValueMap
+    type RegisterMap = map<Register, RegisterValue>
+
+    // TODO: Update Environment to include eBPF Maps later
+    type Environment = (AssignmentStore, RegisterMap)
 
     method print_statements(prog: seq<Statement>) {
         var i: int := 0;

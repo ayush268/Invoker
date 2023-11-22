@@ -10,12 +10,12 @@ module Execution {
     import opened BoundedInts
     import opened Types
 
-    function executeProgram(prog: BPFProgram): EnvironmentMap {
+    function executeProgram(prog: BPFProgram): Environment {
         // TODO
-        []
+
     }
 
-    function executeStatement(prog: seq<Statement>, env: EnvironmentMap): EnvironmentMap {
+    function executeStatement(prog: seq<Statement>, env: Environment, mem: MemoryList): (Environment, MemoryList) {
         // TODO
         []
     }
