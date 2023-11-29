@@ -13,7 +13,7 @@ module Types {
     // An instruction can be 64 bit or 128 bits
     // This is essentially constituting the BPF bytecode
     datatype Statement = Instruction(op: OpCode, src_reg: Option<Register>, dest_reg: Option<Register>, offset: int16, imm: int32) |
-                         Instruction128(op: OpCode, src_reg: Option<Register>, dest_reg: Option<Register>, offset: int16, imm64: int64)
+                         Instruction128(op: OpCode, src_reg: Option<Register>, dest_reg: Option<Register>, offset: int16, imm: int32, next_imm: int32)
     
     // OpCode field is of 8 bits out of which 3 LSB is instruction class
     // We'll divide each instruction class into its own instruction type here itself
@@ -127,7 +127,7 @@ module Types {
 
     // Execution can also result in an error which needs to be handled
     // TODO: Update errors or add more result types as needed
-    datatype ExecResult<T> = Some(result: T) | NoFuel | Error(code: int, message: string)
+    datatype ExecResult<T> = Ok(result: T) | NoFuel | Error(code: int, message: string)
 
     method print_statements(prog: seq<Statement>) {
         var i: int := 0;
