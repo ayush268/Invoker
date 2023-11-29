@@ -1,9 +1,11 @@
 include "BoundedInts.dfy"
 include "Types.dfy"
+include "Helpers.dfy"
 
 module InstructionHandlers {
     import opened BoundedInts
     import opened Types
+    import opened Helpers
 
     function handleArithmeticInstructions(opcode: ArithmeticOpCode,
                                           source: ArithmeticSource,
@@ -14,6 +16,36 @@ module InstructionHandlers {
                                           imm: int32,
                                           env: Environment): Option<Environment>
     {
+        var source_operand: int64 :- match source {
+            // TODO Can we do type casting here ?
+            case BPF_K => Some(imm as int64)
+            // TODO: Can I do a midway return here ???
+            case BPF_X => match src_reg {
+                case None => None // return error
+                case Some(reg) => Some(getRegValue(reg, env.1))
+            }
+        };
+        
+        // operands tuple (dest, source)
+        /*var operands: (int, int) := match cls {
+            case BPF_ALU64 => (
+                // TODO casting here
+                (match dest_reg {
+                    case None => 0
+                    case Some(reg) => getRegValue(reg, env.1)
+                },
+                source_operand)
+            )
+            case BPF_ALU => (
+                // TODO casting here to int32
+                (match dest_reg {
+                    case None => 0
+                    case Some(reg) => getRegValue(reg, env.1)
+                },
+                source_operand)
+            )
+        };*/
+
         Some(env)
     }
 

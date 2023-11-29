@@ -6,6 +6,21 @@ module Types {
 
     // Basic datatypes used throughout the code.
     datatype Option<T> = Some(elem: T) | None
+    {
+        predicate IsFailure() {
+            this.None?
+        }
+        function PropagateFailure<U>(): Option<U>
+            requires IsFailure()
+        {
+            None
+        }
+        function Extract(): T
+            requires !IsFailure()
+        {
+            this.elem
+        }
+    }
 
     // A BPF Program will be a list of sequential instructions
     datatype BPFProgram = Statements(inst: seq<Statement>)
