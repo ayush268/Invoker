@@ -125,6 +125,10 @@ module Types {
     // TODO: Update Environment to include eBPF Maps later
     type Environment = (AssignmentStore, RegisterMap)
 
+    // Execution can also result in an error which needs to be handled
+    // TODO: Update errors or add more result types as needed
+    datatype ExecResult<T> = Some(result: T) | NoFuel | Error(code: int, message: string)
+
     method print_statements(prog: seq<Statement>) {
         var i: int := 0;
         while i < |prog| {
