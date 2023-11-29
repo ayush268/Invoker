@@ -10,18 +10,23 @@ module Execution {
     import opened BoundedInts
     import opened Types
 
-    function executeProgram(prog: BPFProgram): Environment {
+    function executeProgram(prog: BPFProgram): ExecResult<Environment>
+        // TODO: add any constraints as needed
+    {
         match prog {
             case Statements(s) => executeStatement(s, (map[], map[]), 1)
-            case _ => (map[], map[])
+            case _ => Some(map[], map[])
         }
     }
 
-    function executeStatement(prog: seq<Statement>, env: Environment, mem: Memory): Environment {
-        // TODO
-        if |prog| == 0 then {   
-            env
-        } else {
+    // TODO: complete the function
+    function executeStatement(prog: seq<Statement>, env: Environment, mem: Memory, pc: nat, fuel: nat): ExecResult<Environment>
+        requires pc <= |prog|
+        decreases fuel
+    {
+        if fuel == 0 then NoFuel
+        else if pc == |prog| then Some(env)
+        else {
             match prog[0] {
                 case Instruction(op, src_reg, dest_reg, offset, imm) => {
                     match op {
