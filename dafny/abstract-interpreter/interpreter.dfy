@@ -205,7 +205,7 @@ module eBPFInterpreter {
     //TODO: Implement this
     (env, Success)
   }
- 
+
 
   function handleALUOp(instruction: Statement, env: BPFVerifierEnv): (BPFVerifierEnv, Error)
     requires instruction.Instruction?
@@ -239,7 +239,7 @@ module eBPFInterpreter {
             (temp_env, Success)
         }
 
-      case BPF_ADD => 
+      case BPF_ADD =>
         //TODO: do checks for reserved fields
         var err := checkRegArg(env, instruction, instruction.destReg, SRC_OP);
         //TODO: Do early return on error here
@@ -247,7 +247,7 @@ module eBPFInterpreter {
         var err := checkRegArg(env, instruction, instruction.destReg, DST_OP_NO_MARK);
         //TODO: Do early return on error here
         adjustRegMinMaxVals(env, instruction)
-        
+
 
       case default => (env, Success)
     };
