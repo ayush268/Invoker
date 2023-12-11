@@ -8,7 +8,7 @@ module parser {
   //TODO: Do we really need Immediate32?
   datatype Statement = Instruction(op: Op, srcReg: RegisterOrUnused, destReg: RegisterOrUnused, offset: int16, immediate: int32) | Immediate32(immediate: int32)
                        //TODO: Add Legacy BPF Instructions
-  
+
   // TODO: Make it cleaner
   // Let the division be only on the instruction class rather than 2 ways, makes it a bit confusing
   datatype Op = ArithmeticOperation(arithmeticInstructionClass: ArithmeticInstructionClass, arithmeticSource: ArithmeticSource, arithmeticOpcode: ArithmeticOpCode) | // BPF_ALU, BPF_ALU64
