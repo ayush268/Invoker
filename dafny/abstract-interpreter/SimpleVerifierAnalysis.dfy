@@ -2,91 +2,146 @@ include "SimpleVerifier.dfy"
 
 module SimpleVerifierAnalysis {
     import opened Lang
-    import opened ConcreteEval
+    import opened E = ConcreteEval
     import opened AbstractEval
 
-    datatype Visited = EXPLORED | EXPLORING | NOT_EXPLORED
+    datatype PathState = PathState(state: E.State, pc: int)
 
-    function num_unexplored(visited: seq<Visited>): int 
-        decreases |visited|
-    {
-        if |visited| == 0 then
-            0
-        else 
-            if visited[0] == NOT_EXPLORED then
-                1 + num_unexplored(visited[1..])
-            else
-                num_unexplored(visited[1..])
+    datatype AbstractPathState = AbstractPathState(state: AbstractState, pc: int, branch_pcs: seq<int>)
+
+    predicate state_equal(s1: E.State, s2: E.State) {
+        forall r : Reg :: s1(r) == s2(r) 
     }
 
-    // Recursive DFS
-    function check_cfg_acyclic(prog: Program, idx: int, visited: seq<Visited>): Option<(seq<Visited>, bool)> 
-        requires |visited| == |prog.stmts|
-        decreases num_unexplored(visited)
+    predicate stmt_step_valid(prog: Program, pc: int, env: E.State, pc': int, env': E.State) 
+        requires 0 <= pc <= |prog.stmts|
+        requires 0 <= pc' <= |prog.stmts|
+        requires (pc == |prog.stmts|) ==> (pc' == |prog.stmts|)
     {
-        if |prog.stmts| == 0 then
-            Some((visited, true))
+        if pc == |prog.stmts| then
+            true
         else
-            if idx >= |prog.stmts| || idx < 0 then
-                None
+            var stmt := prog.stmts[pc];
+            match E.stmt_step(env, stmt) {
+                case Some((env'', offset)) => 
+                    (pc + offset == pc') && state_equal(env', env'')
+                case None => false 
+            }
+    }
+
+    // TODO: Write predicate for a valid path
+    predicate path_valid(prog: Program, path_states: seq<PathState>) {
+        if |path_states| <= 1 then 
+            true
+        else
+            if path_states[0].pc < 0 || path_states[0].pc > |prog.stmts| then
+                false
+            else if path_states[0].pc == |prog.stmts| then
+                (path_states[1].pc == |prog.stmts|) && path_valid(prog, path_states[1..])
             else
-                if visited[idx] == EXPLORING then
-                    Some((visited, false))
-                else
-                //TODO: Write some conditionals here
-                    if visited[idx] == NOT_EXPLORED then
-                      //var visited_status := if visited[idx] == NOT_EXPLORED then EXPLORING else EXPLORED;
-                        assert visited[idx] != EXPLORING && visited[idx] != EXPLORED; 
-                        var visited_updated := visited[idx := EXPLORING];
-                        assert |visited_updated| == |visited|;
-                        //assert visited_updated[idx] != NOT_EXPLORED;
-                        assert forall i :: (0 <= i < |visited| && i != idx) ==> (visited[i] == visited_updated[i]);
-
-                        assert num_unexplored(visited_updated) <= num_unexplored(visited); 
-                
-                        match prog.stmts[idx] {
-                            case JmpZero(reg, offset) => 
-                                match check_cfg_acyclic(prog, idx + offset as int, visited_updated) {
-                                    case Some((visited', acyclic)) => 
-                                        if acyclic then
-                                            check_cfg_acyclic(prog, idx + 1, visited')
-                                        else
-                                            Some((visited', false))
-                                    case None => Some((visited_updated, true))
-
-                                }
-                            case default => check_cfg_acyclic(prog, idx + 1, visited_updated)
-                        }
-                    else
-                        Some((visited, true))
+                var stmt := prog.stmts[path_states[0].pc];
+                match E.stmt_step(path_states[0].state, stmt) {
+                    case Some((env', offset)) => 
+                        ((path_states[0].pc + offset) == path_states[1].pc) && path_valid(prog, path_states[1..])
+                    case None => false 
+                }
     }
 
+    function init_abs_reg_state(r: Reg): Val {
+        //TODO: Maybe this should be (0, U64_MAX)
+        Interval(0, 0)
+    }
 
-    method dummy(visited: seq<Visited>, idx: int) returns (y: bool) 
-        requires |visited| > 0
+    function initial_abstract_state(stmt: Stmt): AbstractPathState {
+        AbstractPathState(AbstractState(init_abs_reg_state), 0, [])
+    }
+
+    function push_stack(stack: seq<AbstractPathState>, new_state: AbstractPathState): seq<AbstractPathState> {
+        stack + [new_state]
+    }
+
+    function backtrack_stack(stack: seq<AbstractPathState>): seq<AbstractPathState> 
+        ensures |backtrack_stack(stack)| > 0 ==> |backtrack_stack(stack)[|backtrack_stack(stack)| - 1].branch_pcs| > 0
     {
-        if idx >= |visited| || idx < 0 {
-            y := false;
-        }
-        else {
-            if visited[idx] == NOT_EXPLORED {
-                //var visited_status := if visited[idx] == NOT_EXPLORED then EXPLORING else EXPLORED;
-                assert visited[idx] != EXPLORING && visited[idx] != EXPLORED; 
-                var visited_updated := visited[idx := EXPLORING];
-                assert |visited_updated| == |visited|;
-                //assert visited_updated[idx] != NOT_EXPLORED;
-                assert forall i :: (0 <= i < |visited| && i != idx) ==> (visited[i] == visited_updated[i]);
+        if |stack| == 0 then
+            []
+        else if |stack[|stack| - 1].branch_pcs| > 0 then
+            stack
+        else
+            backtrack_stack(stack[..|stack| - 1])
+    }
 
-                assert num_unexplored(visited_updated) <= num_unexplored(visited);
-            
-               y :=  true;
+    method explore_abstract_paths(prog: Program, fuel: int) 
+        requires fuel >= 0
+        requires |prog.stmts| > 0
+    {
+        var stack : seq<AbstractPathState> := [initial_abstract_state(prog.stmts[0])];
+        var fuel := fuel;
+
+        while fuel > 0 && |stack| > 0
+        {
+            // Pop topmost state from the stack
+            var cur_state := stack[|stack| - 1];
+            var cur_pc := cur_state.pc;
+            stack := stack[..|stack| - 1];
+
+            if cur_pc < 0 || cur_pc > |prog.stmts| {
+                // We should never encounter this
+                break;
             }
-            else {
-                y := true;
+
+            if cur_pc == |prog.stmts| {
+                // We hit the end of the subroutine
+                // Backtrack till an abstract state with |branch_pcs| > 0 and 
+                // explore one of those paths
+                stack := backtrack_stack(stack);
+
+                if |stack| > 0 {
+                    var last_state := stack[|stack| - 1].state;
+                    var last_pc := stack[|stack| - 1].pc;
+                    var last_branches := stack[|stack| - 1].branch_pcs;
+
+                    var new_pc := stack[|stack| - 1].branch_pcs[0];
+
+                    var new_branch_state := AbstractPathState(last_state, last_pc, last_branches[1..]);
+                    stack := stack[|stack| - 1 := new_branch_state];
+                    
+                    var new_expl_state := AbstractPathState(last_state, new_pc, []);
+                    stack := push_stack(stack, new_expl_state);
+                }
+                fuel := fuel - 1;
+                continue;
             }
+
+            // Continue exploring the path
+            var cur_stmt := prog.stmts[cur_state.pc];
+            match cur_stmt {
+                case Assign(r, e) => {
+                    var v := AbstractEval.expr_eval(cur_state.state, e);
+                    var new_state := AbstractEval.update_state(cur_state.state, r, v);
+                    // We rewrite the branches array when this state is being popped off
+                    // Iff it is a branch instruction
+                    var new_abs_state := AbstractPathState(new_state, cur_pc + 1, []);
+                    stack := push_stack(stack, new_abs_state);
+                }
+
+                case JmpZero(r, offset) => {
+                    // Copied from AbstractEval.stmt_eval
+                    // imprecise analysis: we don't try to prove that this jump is or isn't taken
+                    var fall_through := AbstractPathState(cur_state.state, cur_pc + 1, []);
+                    var jmp_state := AbstractPathState(cur_state.state, cur_pc, [cur_pc + offset as int]);
+
+                    // Explore the fall_through case with the jmp offset pending in the branch_pcs seq
+                    stack := push_stack(push_stack(stack, jmp_state), fall_through);
+                }
+            }
+
+            fuel := fuel - 1;
         }
     }
 
+    // TODO: Write a method for state space exploration and then reason about the datastructure that is used
+    // Each sequence on the stack is a valid path --> need to abstract eval and real eval the path
 
-    //function explore_states()
+
 }
