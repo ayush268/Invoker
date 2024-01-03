@@ -31,7 +31,9 @@ module SimpleVerifierAnalysis {
   }
 
   // TODO: Write predicate for a valid path
-  predicate path_valid(prog: Program, path_states: seq<PathState>) {
+  // TODO: Relate 2 states at the same time
+  predicate path_valid(prog: Program, path_states: seq<PathState>)
+  {
     if |path_states| <= 1 then
       true
     else
@@ -46,6 +48,78 @@ module SimpleVerifierAnalysis {
           ((path_states[0].pc + offset) == path_states[1].pc) && path_valid(prog, path_states[1..])
         case None => false
       }
+  }
+
+  method m1(prog: Program, a: seq<PathState>, b: seq<PathState>)
+    requires |a| > 0
+  {
+    assert a == [a[0]] + a[1..];
+    assert bridges(prog, [a[0]], a[1..]) && path_valid(prog, a[1..]) <==> path_valid(prog, a);
+  }
+
+
+  lemma ValidPathConcat(prog: Program, path_states: seq<PathState>)
+    requires |path_states| > 0
+    requires path_valid(prog, path_states)
+    ensures forall i :: 0 <= i < |path_states| - 1 ==> path_valid(prog, [path_states[i], path_states[i + 1]])
+  {
+
+  }
+
+  predicate bridges(prog: Program, a: seq<PathState>, b: seq<PathState>)
+  {
+    if b == [] || a == [] then
+      true
+    else
+    if a[|a| - 1].pc < 0 || a[|a| - 1].pc > |prog.stmts| then
+      false
+    else if a[|a| - 1].pc == |prog.stmts| then
+      b[0].pc == |prog.stmts| //&& path_valid(prog, b)
+    else
+      var stmt := prog.stmts[a[|a| - 1].pc];
+      match E.stmt_step(a[|a| - 1].state, stmt) {
+        case Some((env', offset)) =>
+          ((a[|a| - 1].pc + offset) == b[0].pc) //&& path_valid(prog, b)
+        case None => false
+      }
+  }
+
+  lemma ValidPathsConcat(prog: Program, a: seq<PathState>, b: seq<PathState>)
+    ensures path_valid(prog, a + b) == (path_valid(prog, a) && bridges(prog, a, b) && path_valid(prog, b))
+  {
+    if a == [] {
+      assert a + b == b;
+      assert bridges(prog, a, b);
+      assert path_valid(prog, a);
+      assert path_valid(prog, a + b) == (path_valid(prog, a) && bridges(prog, a, b) && path_valid(prog, b));
+    } else if b == [] {
+      assert a + b == a;
+      assert bridges(prog, a, b);
+      assert path_valid(prog, b);
+      assert path_valid(prog, a + b) == (path_valid(prog, a) && bridges(prog, a, b) && path_valid(prog, b));
+    } else {
+      assert |a + b| >= 2;
+      assert a + b == [a[0]] + (a[1..] + b);
+      assert path_valid(prog, a + b) == path_valid(prog, [a[0]] + (a[1..] + b));
+    }
+  }
+
+  lemma PathBridgeConcat(prog: Program, a: seq<PathState>, bridge: PathState, b: seq<PathState>)
+    ensures path_valid(prog, a + [bridge]) && bridges(prog, a + [bridge], b) && path_valid(prog, [bridge] + b) <==> path_valid(prog, a + [bridge] + b)
+  {
+    ValidPathsConcat(prog, a, [bridge]);
+    assert path_valid(prog, a + [bridge]) == (path_valid(prog, a) && bridges(prog, a, [bridge]) && path_valid(prog, [bridge]));
+
+    ValidPathsConcat(prog, [bridge], b);
+    assert path_valid(prog, [bridge] + b) == (path_valid(prog, [bridge]) && bridges(prog, [bridge], b) && path_valid(prog, b));
+
+    //ValidPathsConcat(prog, a + [bridge], b);
+    assert a + ([bridge] + b) == (a + [bridge]) + b ;
+    ValidPathsConcat(prog, a + [bridge], b);
+    //assert path_valid(prog, a + [bridge] + b) == path_valid(prog, a + [bridge]) && bridges(prog, a + [bridge], b) && path_valid(prog, b);
+
+    assert (a + [bridge] + b) == (a + ([bridge] + b));
+    assert path_valid(prog, a + [bridge]) && path_valid(prog, [bridge] + b) ==> path_valid(prog, a) && path_valid(prog, b) && bridges(prog, a, [bridge]) && bridges(prog, [bridge], b);
   }
 
   function init_abs_reg_state(r: Reg): Val {
@@ -107,11 +181,13 @@ module SimpleVerifierAnalysis {
 
     assert (path_state_included(concrete_stack[0], stack[0]));
     assert |concrete_stack| == |stack|;
+    assert path_valid(prog, concrete_stack);
 
     while fuel > 0 && |stack| > 0
       invariant |concrete_stack| == |stack|
       // Proving that the actual execution is a subset of the static path wrt all taken branches
       invariant forall i :: 0 <= i < |stack| ==> path_state_included(concrete_stack[i], stack[i])
+      //invariant path_valid(prog, concrete_stack);
     {
       // Pop topmost state from the abstract path stack
       var cur_state := stack[|stack| - 1];
@@ -122,6 +198,7 @@ module SimpleVerifierAnalysis {
       var cur_conc_state := concrete_stack[|concrete_stack| - 1];
       var cur_conc_pc := cur_conc_state.pc;
       concrete_stack := concrete_stack[..|concrete_stack| - 1];
+      //assert path_valid(prog, concrete_stack);
 
       if cur_pc < 0 || cur_pc > |prog.stmts| {
         // We should never encounter this
@@ -171,6 +248,7 @@ module SimpleVerifierAnalysis {
         break;
       }
 
+      assert cur_conc_pc == cur_pc;
 
       match cur_stmt {
         case Assign(r, e) => {
@@ -188,6 +266,9 @@ module SimpleVerifierAnalysis {
 
           assert (path_state_included(new_conc_state, new_abs_state));
           assert path_state_included(concrete_stack[|concrete_stack| - 1], stack[|stack| - 1]);
+
+          assert bridges(prog, [cur_conc_state], [new_conc_state]);
+          assert bridges(prog, concrete_stack + [cur_conc_state], [new_conc_state]);
         }
 
         case JmpZero(r, offset) => {
@@ -209,9 +290,12 @@ module SimpleVerifierAnalysis {
             // Explore the target branch
             stack := push_stack(push_stack(stack, jmp_state), jmp_targ);
             concrete_stack := concrete_stack + [jmp_conc_state] + [jmp_conc_targ];
+            assert(cur_conc_state == jmp_conc_state);
+            assert (path_valid(prog, [jmp_conc_state, jmp_conc_targ]));
           } else {
             stack := push_stack(push_stack(stack, jmp_state), fall_through);
             concrete_stack := concrete_stack + [jmp_conc_state] + [conc_fall_through];
+            assert (path_valid(prog, [jmp_conc_state, conc_fall_through]));
           }
           assert path_state_included(concrete_stack[|concrete_stack| - 1], stack[|stack| - 1]);
         }
