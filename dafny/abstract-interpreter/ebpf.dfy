@@ -1,3 +1,5 @@
+include "BoundedInts.dfy"
+
 module parser {
 
   import opened BoundedInts

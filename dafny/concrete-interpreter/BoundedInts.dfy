@@ -22,7 +22,7 @@ module BoundedInts {
   const U64_MAX : uint64 := (TWO_TO_THE_64 - 1) as uint64
 
   const S32_MIN : int32 := -0x8000_0000
-  const S32_MAX : int32:= (0x8000_0000 - 1) as int32
+  const S32_MAX : int32 := (0x8000_0000 - 1) as int32
   const U32_MIN : uint32 := 0
   const U32_MAX : uint32 := 0x8000_0000 - 1
 
