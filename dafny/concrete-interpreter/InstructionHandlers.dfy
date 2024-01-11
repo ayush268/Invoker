@@ -49,7 +49,6 @@ module InstructionHandlers {
 
         match opcode {
             case BPF_ADD => (
-                // TODO BPF_ADD
                 match dest_reg {
                     case None => None
                     case Some(reg) => (
@@ -118,7 +117,6 @@ module InstructionHandlers {
                 Some(env)
             )
             case BPF_MOV => (
-                // TODO BPF_MOV
                 match dest_reg {
                     case None => None
                     case Some(reg) => (
@@ -150,6 +148,7 @@ module InstructionHandlers {
         Some(env)
     }
 
+    // Return values -> (Update Environment, Updated Memory, Update Program Counter)
     function handleJumpInstructions(opcode: JumpOpCode,
                                     source: JumpSource,
                                     cls: JumpInstructionClass,
@@ -160,7 +159,65 @@ module InstructionHandlers {
                                     env: Environment,
                                     mem: MemoryList): Option<(Environment, MemoryList, int)>
     {
-        Some((env, mem, 1))
+        // TODO complete
+        match opcode {
+            case BPF_JA => (
+                // TODO BPF_JA
+                Some((env, mem, 1))   
+            )
+            case BPF_JEQ => (
+                // TODO BPF_JEQ
+                Some((env, mem, 1))
+            )
+            case BPF_JGT => (
+                // TODO BPF_JGT
+                Some((env, mem, 1))
+            )
+            case BPF_JGE => (
+                // TODO BPF_JGE
+                Some((env, mem, 1))
+            )
+            case BPF_JSET => (
+                // TODO BPF_JSET
+                Some((env, mem, 1))
+            )
+            case BPF_JNE => (
+                // TODO BPF_JNE
+                Some((env, mem, 1))
+            )
+            case BPF_JSGT => (
+                // TODO BPF_JSGT
+                Some((env, mem, 1))
+            )
+            case BPF_JSGE => (
+                // TODO BPF_JSGE
+                Some((env, mem, 1))
+            )
+            case BPF_CALL => (
+                // TODO BPF_CALL
+                Some((env, mem, 1))
+            )
+            case BPF_EXIT => (
+                // TODO BPF_EXIT
+                Some((env, mem, 1))
+            )
+            case BPF_JLT => (
+                // TODO BPF_JLT
+                Some((env, mem, 1))
+            )
+            case BPF_JLE => (
+                // TODO BPF_JLE
+                Some((env, mem, 1))
+            )
+            case BPF_JSLT => (
+                // TODO BPF_JSLT
+                Some((env, mem, 1))
+            )
+            case BPF_JSLE => (
+                // TODO BPF_JSLE
+                Some((env, mem, 1))
+            )
+        }
     }
 
     function handleLoadInstructions(mode: LoadMode,
