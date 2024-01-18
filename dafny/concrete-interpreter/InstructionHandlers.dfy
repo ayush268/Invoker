@@ -15,82 +15,105 @@ module InstructionHandlers {
                                           offset: int16,
                                           imm: int32,
                                           env: Environment): Option<Environment>
+        requires !dest_reg.IsFailure() && // the dest register can't be null
+                 (source == ArithmeticSource.BPF_X && !src_reg.IsFailure()) // if source is BPF_X then source register can't be null
     {
         var source_operand: int64 :- match source {
             // TODO ensure casting is correct here ?
             case BPF_K => Some(castInt32ToInt64(imm))
-            // TODO: Can I do a midway return here ?
-            case BPF_X => match src_reg {
-                case None => None // return error
-                case Some(reg) => Some(getRegValue(reg, env.1))
-            }
+            case BPF_X => Some(getRegValue(src_reg.Extract(), env.1))
         };
-        
+
         // operands tuple (dest, source)
         var operands: (int, int) :- match cls {
-            case BPF_ALU64 => (
+            case BPF_ALU64 =>
                 // TODO No need of casting here
-                match dest_reg {
-                    case None => None
-                    case Some(reg) => Some((getRegValue(reg, env.1) as int,
-                                            source_operand as int))
-                }
-            )
-            case BPF_ALU => (
+                Some((getRegValue(dest_reg.Extract(), env.1) as int, source_operand as int))
+            case BPF_ALU =>
                 // TODO casting here to int32 and
                 // finally reading it into int
-                match dest_reg {
-                    case None => None
-                    case Some(reg) => Some((castInt64ToInt32(getRegValue(reg, env.1)) as int,
-                                            castInt64ToInt32(source_operand) as int))
-                }
-            )
+                Some((castInt64ToInt32(getRegValue(dest_reg.Extract(), env.1)) as int,
+                      castInt64ToInt32(source_operand) as int))
         };
 
         match opcode {
             case BPF_ADD => (
-                match dest_reg {
-                    case None => None
-                    case Some(reg) => (
-                        var updated_register_map: RegisterMap := match cls {
-                            case BPF_ALU64 => (
-                                updateRegValue(reg,
-                                               castIntToInt64(operands.0 + operands.1),
-                                               env.1)
-                            )
-                            case BPF_ALU => (
-                                updateRegValue(reg,
-                                               castInt32ToInt64(castIntToInt32(operands.0 + operands.1)),
-                                               env.1)
-                            )
-                        };
-                        Some((env.0, updated_register_map))
-                    )
-                }
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(operands.0 + operands.1),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(operands.0 + operands.1)),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_SUB => (
-                // TODO BPF_SUB
-                Some(env)
+                // TODO BPF_SUB, check if underflows/overflows are handled correctly
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(operands.0 - operands.1),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(operands.0 - operands.1)),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_MUL => (
-                // TODO BPF_MUL
-                Some(env)
+                // TODO BPF_MUL, check if overflows are handled correctly
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(operands.0 * operands.1),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(operands.0 * operands.1)),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_DIV => (
-                // TODO BPF_DIV
-                Some(env)
+                // TODO BPF_DIV, check if underflows are handled correctly
+                // if operands.1 (src == 0) then 0; case of division by zero
+                var result: int := if operands.1 == 0 then 0
+                                   else operands.0 / operands.1;
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(result),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(result)),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_SDIV => (
-                // TODO BPF_SDIV
-                Some(env)
+                // TODO BPF_SDIV, is this operation present anymore?
+                None
             )
             case BPF_OR => (
-                // TODO BPF_OR
-                Some(env)
+                // TODO BPF_OR, assuming this to be bitwise OR
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(bitwiseOrOperation(operands.0, operands.1, 64)),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(bitwiseOrOperation(operands.0, operands.1, 32))),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_AND => (
-                // TODO BPF_AND
-                Some(env)
+                // TODO BPF_AND, assuming this to be bitwise AND
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(bitwiseAndOperation(operands.0, operands.1, 64)),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(bitwiseAndOperation(operands.0, operands.1, 32))),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_LSH => (
                 // TODO BPF_LSH
@@ -101,34 +124,56 @@ module InstructionHandlers {
                 Some(env)
             )
             case BPF_NEG => (
-                // TODO BPF_NEG
-                Some(env)
+                // TODO BPF_NEG, assuming this to be bitwise NEG
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(bitwiseNegOperation(operands.1, 64)),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(bitwiseNegOperation(operands.1, 32))),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_MOD => (
-                // TODO BPF_MOD
-                Some(env)
+                // TODO BPF_MOD, check if underflows are handled correctly
+                // if operands.1 (src == 0) then dest; case of division by zero
+                var result: int := if operands.1 == 0 then operands.0
+                                   else operands.0 % operands.1;
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(result),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(result)),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_SMOD => (
-                // TODO BPF_SMOD
+                // TODO BPF_SMOD, is this operation present anymore ?
                 Some(env)
             )
             case BPF_XOR => (
-                // TODO BPF_XOR
-                Some(env)
+                // TODO BPF_XOR, assuming this to be bitwise XOR
+                var updated_register_map: RegisterMap := match cls {
+                    case BPF_ALU64 => updateRegValue(dest_reg.Extract(),
+                                                     castIntToInt64(bitwiseXorOperation(operands.0, operands.1, 64)),
+                                                     env.1)
+                    case BPF_ALU => updateRegValue(dest_reg.Extract(),
+                                                   castInt32ToInt64(castIntToInt32(bitwiseXorOperation(operands.0, operands.1, 32))),
+                                                   env.1)
+                };
+                Some((env.0, updated_register_map))
             )
             case BPF_MOV => (
-                match dest_reg {
-                    case None => None
-                    case Some(reg) => (
-                        var updated_register_map: RegisterMap := updateRegValue(reg,
-                                                                                operands.1 as RegisterValue,
-                                                                                env.1);
-                        Some((env.0, updated_register_map))
-                    )
-                }
+                var updated_register_map: RegisterMap := updateRegValue(dest_reg.Extract(),
+                                                                        operands.1 as RegisterValue,
+                                                                        env.1);
+                Some((env.0, updated_register_map))
             )
             case BPF_MOVSX => (
-                // TODO BPF_MOVSX
+                // TODO BPF_MOVSX, is this operation present anymore ?
                 Some(env)
             )
             case BPF_ARSH => (

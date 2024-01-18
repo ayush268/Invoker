@@ -46,4 +46,29 @@ module Helpers {
     {
         (source as int) as int64
     }
+
+    // TODO Bitwise Operations
+    // TODO Bitwise Or Operation
+    function bitwiseOrOperation(op1: int, op2: int, bits: int): int
+    {
+        0
+    }
+
+    // TODO Bitwise And Operation
+    function bitwiseAndOperation(op1: int, op2: int, bits: int): int
+    {
+        0
+    }
+
+    // TODO Bitwise XOR Operation
+    function bitwiseXorOperation(op1: int, op2: int, bits: int): int
+    {
+        0
+    }
+
+    // TODO Bitwise Negation
+    function bitwiseNegOperation(op: int, bits: int): int
+    {
+        0
+    }
 }
