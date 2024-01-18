@@ -14,7 +14,9 @@ module add_example {
   import opened Types
   import opened Execution
 
-  function add_example(): BPFProgram {
+  // Interesting insight -> having the same name of the function as the module results in error
+  // while compilation
+  function add_example_program(): BPFProgram {
     var statement00Op: OpCode := ArithmeticOperation(ArithmeticOpCode.BPF_MOV, ArithmeticSource.BPF_K, ArithmeticInstructionClass.BPF_ALU64);
     var statement00: Statement := Instruction(statement00Op, None, Some(Register.R0), 0x0, 0x01);
 
@@ -29,8 +31,20 @@ module add_example {
     Statements(stmt_seq)
   }
 
+  /*function test_example(): bool {
+    var program: BPFProgram := add_example_program();
+    assert(|program.inst| == 3);
+    true
+  }*/
+
   method Main() {
-    print "Hello!";
-    //print executeProgram(add_example());
+    var example_prog: BPFProgram := add_example_program();
+    print |example_prog.inst|, "\n";
+    var res := executeProgram(example_prog);
+    match res {
+      case Ok(r) => print r;
+      case NoFuel => print "Ran out of fuel";
+      case Error(c, msg) => print "Error: ", msg;
+    }
   }
 }
