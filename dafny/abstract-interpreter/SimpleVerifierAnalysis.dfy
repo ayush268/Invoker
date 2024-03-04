@@ -1,14 +1,22 @@
 include "SimpleVerifier.dfy"
+include "BoundedInts.dfy"
 
 module SimpleVerifierAnalysis {
   import opened Lang
   import opened E = ConcreteEval
   import opened AbstractEval
   import opened Ints
+  import opened BoundedInts
 
   datatype PathState = PathState(state: E.State, pc: int)
 
   datatype AbstractPathState = AbstractPathState(state: AbstractState, pc: int, branch_pcs: seq<int>)
+
+  datatype AbstractPath = AbstractPath(path: seq<AbstractPathState>)
+  datatype AnalysisResult = AnalysisResult(paths: seq<AbstractPath>)
+
+  datatype VerifierState = VerifierState(insn_idx: nat)
+  datatype VerifierStackElem = VerifierStackElem(prev_insn_idx: nat, insn_idx: nat, verifier_state: AbstractPathState)
 
   predicate state_equal(s1: E.State, s2: E.State) {
     forall r : Reg :: s1(r) == s2(r)
@@ -124,7 +132,8 @@ module SimpleVerifierAnalysis {
 
   function init_abs_reg_state(r: Reg): Val {
     //TODO: Maybe this should be (0, U64_MAX)
-    Interval(0, 0)
+    //TODO: All registers are unconstrained
+    Interval(0, U64_MAX as int)
   }
 
   function init_conc_reg_state(r: Reg): u32 {
@@ -169,6 +178,8 @@ module SimpleVerifierAnalysis {
     (path_state.pc == abs_path_state.pc) &&
     (state_included(path_state.state, abs_path_state.state))
   }
+
+  
 
   method explore_abstract_paths(prog: Program, fuel: int, init_conc_state: PathState, init_abstract_state: AbstractPathState)
     requires fuel >= 0
@@ -305,8 +316,86 @@ module SimpleVerifierAnalysis {
     }
   }
 
+  predicate programWellFormed(prog: Program) {
+    true
+  }
+
+  function pushAbstractPath(absPath: AbstractPath, state: AbstractPathState) : AbstractPath {
+    AbstractPath(absPath.path + [state])
+  }
+
+  function exploreTillBranch(prog: Program, inst_idx: nat, abs_state: AbstractState, fuel: int) : AbstractPath 
+    requires |prog.stmts| > 0
+    requires fuel >= 0
+    decreases fuel
+  {
+    var empty : AbstractPath := AbstractPath([]);
+
+    if inst_idx >= |prog.stmts| then
+      empty
+    else
+
+      var cur_inst := prog.stmts[inst_idx];
+
+      if fuel > 0 then 
+        match cur_inst {
+          case JmpZero(_, _) => empty
+          case Assign(r, e) => 
+            var v := AbstractEval.expr_eval(abs_state, e);
+            var new_state := AbstractEval.update_state(abs_state, r, v);
+            var path_state := AbstractPathState(new_state, inst_idx, []);
+            if inst_idx == |prog.stmts| - 1 then 
+              AbstractPath([path_state])
+            else
+              var rest_of_path := exploreTillBranch(prog, inst_idx + 1, new_state, fuel - 1);
+              AbstractPath([path_state] + rest_of_path.path)
+        }
+      else
+        empty
+
+    //ret
+  }
+
   // TODO: Write a method for state space exploration and then reason about the datastructure that is used
   // Each sequence on the stack is a valid path --> need to abstract eval and real eval the path
 
+
+  // The idea is to prove that the kernel's implementation of state space exploration and merging (or a lack thereof) is
+  // semantically equivalent to a general abstract interpretation procedure over the same domains used by the kernel
+  // The kernel explores each path in the program in a depth first manner never merging paths, but performs updates to
+  // the abstract values in each register as dictated by the instruction semantics
+  // The intuition is that the kernel algorithm potentially obtains more fine grained information since it does not merge
+  // abstract values over paths
+
+  // Analysis result returns a subset of explored paths as bounded by fuel
+  // Each path may not even be complete as in it does not result in an exit instruction
+  //    A
+  //    |
+  //    B
+  //   / \
+  //  C   D
+  // Theorem to prove 1: For all concrete initial states c, path(c) should be contained
+  // in the corresponding abstract path of the Analysis result
+  // Theorem to prove 2: The Analysis result should be implied as per the correctness of
+  // a general abstract interpretation procedure over the same interval domain
+
+  // TODO: Need to find a datastructure for holding the program paths
+  // TODO: The initial abstract state is completely unconstrained for now
+  method verifierExplorePaths(prog: Program, fuel: int) returns (y : AnalysisResult)
+    requires fuel > 0
+    requires |prog.stmts| > 0
+    requires programWellFormed(prog)
+  {
+
+    var ret := AnalysisResult([]);
+    var init_abs_state:= initial_abstract_state(prog.stmts[0]);
+    var explored_states: seq<seq<AbstractState>> := [];
+    var cur_inst_idx: nat := 0;
+    var stack: seq<VerifierStackElem> := [];
+
+    var path := exploreTillBranch(prog, cur_inst_idx, init_abs_state.state, fuel);
+
+    return ret;
+  }
 
 }
