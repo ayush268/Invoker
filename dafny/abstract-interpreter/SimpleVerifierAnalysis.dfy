@@ -16,7 +16,7 @@ module SimpleVerifierAnalysis {
   datatype AnalysisResult = AnalysisResult(paths: seq<AbstractPath>)
 
   datatype VerifierState = VerifierState(insn_idx: nat)
-  datatype VerifierStackElem = VerifierStackElem(prev_insn_idx: nat, insn_idx: nat, verifier_state: AbstractPathState)
+  datatype VerifierStackElem = VerifierStackElem(prev_inst_idx: nat, inst_idx: nat, verifier_state: AbstractPathState, path: AbstractPath)
 
   predicate state_equal(s1: E.State, s2: E.State) {
     forall r : Reg :: s1(r) == s2(r)
@@ -324,36 +324,47 @@ module SimpleVerifierAnalysis {
     AbstractPath(absPath.path + [state])
   }
 
-  function exploreTillBranch(prog: Program, inst_idx: nat, abs_state: AbstractState, fuel: int) : AbstractPath 
+  function exploreTillBranchOrExit(prog: Program, inst_idx: nat, abs_state: AbstractState, fuel: int) : AbstractPath 
     requires |prog.stmts| > 0
     requires fuel >= 0
+    // Make sure that we stay within bounds of the program
+    ensures inst_idx < |prog.stmts| ==> inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| <= |prog.stmts|
+    ensures inst_idx < |prog.stmts| && prog.stmts[inst_idx].JmpZero? ==> |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| == 0
+
+    // Make sure that instruction following the path is a branch instruction with enough fuel
+    //ensures (inst_idx < |prog.stmts|) && inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| < |prog.stmts| 
+    //&& fuel >= |prog.stmts| && |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| == 5 ==> 
+    //    (prog.stmts[inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path|].JmpZero?)
     decreases fuel
   {
-    var empty : AbstractPath := AbstractPath([]);
+    var empty_path : AbstractPath := AbstractPath([]);
 
     if inst_idx >= |prog.stmts| then
-      empty
+      assert |empty_path.path| == 0; 
+      empty_path
     else
 
       var cur_inst := prog.stmts[inst_idx];
 
       if fuel > 0 then 
         match cur_inst {
-          case JmpZero(_, _) => empty
+          case JmpZero(_, _) => empty_path
           case Assign(r, e) => 
             var v := AbstractEval.expr_eval(abs_state, e);
             var new_state := AbstractEval.update_state(abs_state, r, v);
             var path_state := AbstractPathState(new_state, inst_idx, []);
-            if inst_idx == |prog.stmts| - 1 then 
-              AbstractPath([path_state])
-            else
-              var rest_of_path := exploreTillBranch(prog, inst_idx + 1, new_state, fuel - 1);
-              AbstractPath([path_state] + rest_of_path.path)
+
+            var rest_of_path := exploreTillBranchOrExit(prog, inst_idx + 1, new_state, fuel - 1);
+            AbstractPath([path_state] + rest_of_path.path)
         }
       else
-        empty
+        empty_path
 
     //ret
+  }
+
+  function concatPaths(path1: AbstractPath, path2: AbstractPath) : AbstractPath {
+    AbstractPath(path1.path + path2.path)
   }
 
   // TODO: Write a method for state space exploration and then reason about the datastructure that is used
@@ -385,15 +396,60 @@ module SimpleVerifierAnalysis {
     requires fuel > 0
     requires |prog.stmts| > 0
     requires programWellFormed(prog)
+    requires has_valid_jump_targets(prog.stmts, 0)
   {
-
     var ret := AnalysisResult([]);
-    var init_abs_state:= initial_abstract_state(prog.stmts[0]);
+    var fuel := fuel;
+    var cur_state := initial_abstract_state(prog.stmts[0]);
     var explored_states: seq<seq<AbstractState>> := [];
     var cur_inst_idx: nat := 0;
+    var prev_inst_idx: nat := 0;
     var stack: seq<VerifierStackElem> := [];
+    var cur_path := AbstractPath([]);
 
-    var path := exploreTillBranch(prog, cur_inst_idx, init_abs_state.state, fuel);
+    while fuel > 0 {
+      var path := exploreTillBranchOrExit(prog, cur_inst_idx, cur_state.state, fuel);
+      var branch_or_exit_idx : nat := cur_inst_idx + |path.path|;
+      assert cur_inst_idx < |prog.stmts| ==> branch_or_exit_idx <= |prog.stmts|;
+
+      // Reached an exit, pop from the stack
+      if branch_or_exit_idx >= |prog.stmts| || |path.path| == 0 {
+        // Add path to analysis result
+        ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path)]);
+
+        if |stack| == 0 {
+          // We are done with the exploration
+          break;
+        } else {
+          // Pop from stack
+          var stack_top := stack[|stack| - 1];
+          prev_inst_idx := stack_top.prev_inst_idx;
+          cur_inst_idx := stack_top.inst_idx;
+          cur_path := stack_top.path;
+          cur_state := stack_top.verifier_state;
+          stack := stack[..|stack| - 1];
+        }
+
+      } else {
+        // Test what instruction we got and explore accordingly
+        var cur_inst := prog.stmts[branch_or_exit_idx];
+        assert branch_or_exit_idx < |prog.stmts|;
+        match cur_inst {
+          // Should happen only if we ran out of fuel for exploration
+          case Assign(_, _) => 
+            ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path)]);
+          case JmpZero(_ , offset) =>
+            // We ended at a branch, we should
+          has_valid_jump_targets_ok(prog.stmts);
+          var last_stack_elem := VerifierStackElem(branch_or_exit_idx, branch_or_exit_idx + offset, path.path[|path.path| - 1], concatPaths(cur_path, path));
+
+        }
+        
+      }
+      
+      // Decrement 1 to ensure termination
+      fuel := fuel - |path.path| - 1;
+    }
 
     return ret;
   }
