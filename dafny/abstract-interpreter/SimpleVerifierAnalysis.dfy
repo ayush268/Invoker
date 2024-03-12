@@ -16,7 +16,7 @@ module SimpleVerifierAnalysis {
   datatype AnalysisResult = AnalysisResult(paths: seq<AbstractPath>)
 
   datatype VerifierState = VerifierState(insn_idx: nat)
-  datatype VerifierStackElem = VerifierStackElem(prev_inst_idx: nat, inst_idx: nat, verifier_state: AbstractPathState, path: AbstractPath)
+  datatype VerifierWorkElem = VerifierWorkElem(prev_inst_idx: nat, inst_idx: nat, verifier_state: AbstractPathState, path: AbstractPath)
 
   predicate state_equal(s1: E.State, s2: E.State) {
     forall r : Reg :: s1(r) == s2(r)
@@ -404,7 +404,7 @@ module SimpleVerifierAnalysis {
     var explored_states: seq<seq<AbstractState>> := [];
     var cur_inst_idx: nat := 0;
     var prev_inst_idx: nat := 0;
-    var stack: seq<VerifierStackElem> := [];
+    var worklist: seq<VerifierWorkElem> := [];
     var cur_path := AbstractPath([]);
 
     while fuel > 0 {
@@ -412,22 +412,22 @@ module SimpleVerifierAnalysis {
       var branch_or_exit_idx : nat := cur_inst_idx + |path.path|;
       assert cur_inst_idx < |prog.stmts| ==> branch_or_exit_idx <= |prog.stmts|;
 
-      // Reached an exit, pop from the stack
+      // Reached an exit, pop from the worklist
       if branch_or_exit_idx >= |prog.stmts| || |path.path| == 0 {
         // Add path to analysis result
         ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path)]);
 
-        if |stack| == 0 {
+        if |worklist| == 0 {
           // We are done with the exploration
           break;
         } else {
-          // Pop from stack
-          var stack_top := stack[|stack| - 1];
-          prev_inst_idx := stack_top.prev_inst_idx;
-          cur_inst_idx := stack_top.inst_idx;
-          cur_path := stack_top.path;
-          cur_state := stack_top.verifier_state;
-          stack := stack[..|stack| - 1];
+          // Pop from the worklist
+          var worklist_top := worklist[|worklist| - 1];
+          prev_inst_idx := worklist_top.prev_inst_idx;
+          cur_inst_idx := worklist_top.inst_idx;
+          cur_path := worklist_top.path;
+          cur_state := worklist_top.verifier_state;
+          worklist := worklist[..|worklist| - 1];
         }
 
       } else {
@@ -439,9 +439,25 @@ module SimpleVerifierAnalysis {
           case Assign(_, _) => 
             ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path)]);
           case JmpZero(_ , offset) =>
-            // We ended at a branch, we should
+            // We ended at a branch, we should push the taken branch onto the stack and continue exploring the not taken branch
           has_valid_jump_targets_ok(prog.stmts);
-          var last_stack_elem := VerifierStackElem(branch_or_exit_idx, branch_or_exit_idx + offset, path.path[|path.path| - 1], concatPaths(cur_path, path));
+          assert 0 <= branch_or_exit_idx as int + offset as int <= |prog.stmts|;
+          
+          
+          var not_taken_pc := branch_or_exit_idx + 1;
+          var taken_pc := branch_or_exit_idx as int + offset as int;
+
+          // The abstract state at the branch instruction is the same as that of the previous (non-branching) instruction
+          var branch_abs_state := AbstractPathState(path.path[|path.path| - 1].state, branch_or_exit_idx, [not_taken_pc, taken_pc]);
+          var path_so_far := concatPaths(cur_path, concatPaths(path, AbstractPath([branch_abs_state])));
+
+          var last_work_elem := VerifierWorkElem(branch_or_exit_idx, taken_pc, branch_abs_state, path_so_far);
+          worklist := worklist + [last_work_elem];
+
+          // Continue exploring the not taken branch
+          cur_inst_idx := not_taken_pc;
+          prev_inst_idx := branch_or_exit_idx;
+          cur_path := path_so_far;
 
         }
         
