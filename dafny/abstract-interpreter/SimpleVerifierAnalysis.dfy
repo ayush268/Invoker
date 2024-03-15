@@ -324,18 +324,16 @@ module SimpleVerifierAnalysis {
     AbstractPath(absPath.path + [state])
   }
 
-  function exploreTillBranchOrExit(prog: Program, inst_idx: nat, abs_state: AbstractState, fuel: int) : AbstractPath 
+  function exploreTillBranchOrExit(prog: Program, inst_idx: nat, abs_state: AbstractState) : AbstractPath 
     requires |prog.stmts| > 0
-    requires fuel >= 0
     // Make sure that we stay within bounds of the program
-    ensures inst_idx < |prog.stmts| ==> inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| <= |prog.stmts|
-    ensures inst_idx < |prog.stmts| && prog.stmts[inst_idx].JmpZero? ==> |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| == 0
+    ensures inst_idx < |prog.stmts| ==> inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).path| <= |prog.stmts|
+    ensures inst_idx < |prog.stmts| && prog.stmts[inst_idx].JmpZero? ==> |exploreTillBranchOrExit(prog, inst_idx, abs_state).path| == 0
 
-    // Make sure that instruction following the path is a branch instruction with enough fuel
-    //ensures (inst_idx < |prog.stmts|) && inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| < |prog.stmts| 
-    //&& fuel >= |prog.stmts| && |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path| == 5 ==> 
-    //    (prog.stmts[inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state, fuel).path|].JmpZero?)
-    decreases fuel
+    // Make sure that instruction following the path is a branch instruction
+    ensures (inst_idx < |prog.stmts|) && inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).path| < |prog.stmts| ==> 
+        prog.stmts[inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).path|].JmpZero?
+    decreases |prog.stmts| - inst_idx
   {
     var empty_path : AbstractPath := AbstractPath([]);
 
@@ -346,19 +344,17 @@ module SimpleVerifierAnalysis {
 
       var cur_inst := prog.stmts[inst_idx];
 
-      if fuel > 0 then 
-        match cur_inst {
+      match cur_inst {
           case JmpZero(_, _) => empty_path
           case Assign(r, e) => 
             var v := AbstractEval.expr_eval(abs_state, e);
             var new_state := AbstractEval.update_state(abs_state, r, v);
             var path_state := AbstractPathState(new_state, inst_idx, []);
 
-            var rest_of_path := exploreTillBranchOrExit(prog, inst_idx + 1, new_state, fuel - 1);
+            var rest_of_path := exploreTillBranchOrExit(prog, inst_idx + 1, new_state);
             AbstractPath([path_state] + rest_of_path.path)
-        }
-      else
-        empty_path
+      }
+
 
     //ret
   }
@@ -404,11 +400,13 @@ module SimpleVerifierAnalysis {
     var explored_states: seq<seq<AbstractState>> := [];
     var cur_inst_idx: nat := 0;
     var prev_inst_idx: nat := 0;
+
+    // TODO: Change the loop to pop at the beginning
     var worklist: seq<VerifierWorkElem> := [];
     var cur_path := AbstractPath([]);
 
     while fuel > 0 {
-      var path := exploreTillBranchOrExit(prog, cur_inst_idx, cur_state.state, fuel);
+      var path := exploreTillBranchOrExit(prog, cur_inst_idx, cur_state.state);
       var branch_or_exit_idx : nat := cur_inst_idx + |path.path|;
       assert cur_inst_idx < |prog.stmts| ==> branch_or_exit_idx <= |prog.stmts|;
 
@@ -469,5 +467,7 @@ module SimpleVerifierAnalysis {
 
     return ret;
   }
+
+  
 
 }
