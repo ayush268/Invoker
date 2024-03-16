@@ -18,6 +18,8 @@ module SimpleVerifierAnalysis {
   datatype VerifierState = VerifierState(insn_idx: nat)
   datatype VerifierWorkElem = VerifierWorkElem(prev_inst_idx: nat, inst_idx: nat, verifier_state: AbstractPathState, path: AbstractPath)
 
+  datatype InstructionType = BranchInstruction | FunctionExit
+
   predicate state_equal(s1: E.State, s2: E.State) {
     forall r : Reg :: s1(r) == s2(r)
   }
@@ -324,35 +326,48 @@ module SimpleVerifierAnalysis {
     AbstractPath(absPath.path + [state])
   }
 
-  function exploreTillBranchOrExit(prog: Program, inst_idx: nat, abs_state: AbstractState) : AbstractPath 
+  // Returns the path along with whether the last instructucion was a branch or an exit
+  function exploreTillBranchOrExit(prog: Program, inst_idx: nat, abs_state: AbstractState) : (AbstractPath, InstructionType) 
     requires |prog.stmts| > 0
     // Make sure that we stay within bounds of the program
-    ensures inst_idx < |prog.stmts| ==> inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).path| <= |prog.stmts|
-    ensures inst_idx < |prog.stmts| && prog.stmts[inst_idx].JmpZero? ==> |exploreTillBranchOrExit(prog, inst_idx, abs_state).path| == 0
+    ensures inst_idx < |prog.stmts| ==> inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| <= |prog.stmts|
+    ensures inst_idx < |prog.stmts| && prog.stmts[inst_idx].JmpZero? ==> |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| == 0
+    ensures (forall i :: 0 <= i < |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| < |prog.stmts| ==> 0 <= exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path[i].pc < |prog.stmts|)
 
-    // Make sure that instruction following the path is a branch instruction
-    ensures (inst_idx < |prog.stmts|) && inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).path| < |prog.stmts| ==> 
-        prog.stmts[inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).path|].JmpZero?
+    // Make sure that instruction following the path is a branch instruction and everything in between is not a branch
+    ensures inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| < |prog.stmts| ==> 
+      prog.stmts[inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path|].JmpZero? && 
+      exploreTillBranchOrExit(prog, inst_idx, abs_state).1.BranchInstruction? && 
+      (forall i :: inst_idx <= i < inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| ==> !prog.stmts[i].JmpZero?) &&
+      (forall i :: 0 <= i < |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| ==> !prog.stmts[exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path[i].pc].JmpZero?)
+    
+    // Make sure that we return a FunctionExit on an actual function exit and everything in between is not a branch
+    ensures inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| == |prog.stmts| ==>
+      exploreTillBranchOrExit(prog, inst_idx, abs_state).1.FunctionExit? && (forall i :: inst_idx <= i < |prog.stmts| ==> !prog.stmts[i].JmpZero?) &&
+      (forall i :: 0 <= i < |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| < |prog.stmts| ==> !prog.stmts[exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path[i].pc].JmpZero?)
+
     decreases |prog.stmts| - inst_idx
   {
     var empty_path : AbstractPath := AbstractPath([]);
 
     if inst_idx >= |prog.stmts| then
       assert |empty_path.path| == 0; 
-      empty_path
+      (empty_path, FunctionExit)
     else
 
       var cur_inst := prog.stmts[inst_idx];
 
       match cur_inst {
-          case JmpZero(_, _) => empty_path
+          case JmpZero(_, _) => (empty_path, BranchInstruction)
           case Assign(r, e) => 
             var v := AbstractEval.expr_eval(abs_state, e);
             var new_state := AbstractEval.update_state(abs_state, r, v);
+
+            assert inst_idx < |prog.stmts|;
             var path_state := AbstractPathState(new_state, inst_idx, []);
 
             var rest_of_path := exploreTillBranchOrExit(prog, inst_idx + 1, new_state);
-            AbstractPath([path_state] + rest_of_path.path)
+            (AbstractPath([path_state] + rest_of_path.0.path), rest_of_path.1)
       }
 
 
@@ -402,18 +417,71 @@ module SimpleVerifierAnalysis {
     var prev_inst_idx: nat := 0;
 
     // TODO: Change the loop to pop at the beginning
-    var worklist: seq<VerifierWorkElem> := [];
+    var worklist: seq<VerifierWorkElem> := [VerifierWorkElem(0, 0, cur_state, AbstractPath([]))];
     var cur_path := AbstractPath([]);
 
-    while fuel > 0 {
+    assert cur_inst_idx < |prog.stmts|;
+    assert |worklist| == 1;
+    assert forall i :: 0 <= i < |worklist| ==> worklist[i].inst_idx < |prog.stmts|;
+
+    while fuel > 0 
+      invariant forall i :: 0 <= i < |worklist| ==> worklist[i].inst_idx <= |prog.stmts|
+    {
+
+      if |worklist| == 0 {
+        break;
+      }
+
+      // pop work item from stack
+      var worklist_top := worklist[|worklist| - 1];
+      prev_inst_idx := worklist_top.prev_inst_idx;
+      cur_inst_idx := worklist_top.inst_idx;
+      cur_path := worklist_top.path;
+      cur_state := worklist_top.verifier_state;
+      worklist := worklist[..|worklist| - 1];
+
+      assert cur_inst_idx <= |prog.stmts|;
+
       var path := exploreTillBranchOrExit(prog, cur_inst_idx, cur_state.state);
-      var branch_or_exit_idx : nat := cur_inst_idx + |path.path|;
+      var branch_or_exit_idx : nat := cur_inst_idx + |path.0.path|;
       assert cur_inst_idx < |prog.stmts| ==> branch_or_exit_idx <= |prog.stmts|;
+      
+      
+      match path.1 {
+        case BranchInstruction =>
+          var cur_inst := prog.stmts[branch_or_exit_idx];
+          assert branch_or_exit_idx < |prog.stmts|;
+          assert cur_inst.JmpZero?;
+
+          match cur_inst {
+            case JmpZero(_ , offset) =>
+              has_valid_jump_targets_ok(prog.stmts);
+              assert 0 <= branch_or_exit_idx as int + offset as int <= |prog.stmts|;
+          
+              var not_taken_pc := branch_or_exit_idx + 1;
+              var taken_pc := branch_or_exit_idx as int + offset as int;
+
+              // Checking if we are at a branch that happens to be the last instruction
+              var next_abs_state := if |path.0.path| == 0 then cur_state.state else path.0.path[|path.0.path| - 1].state;
+
+              // The abstract state at the branch instruction is the same as that of the previous (non-branching) instruction
+              var branch_abs_state := AbstractPathState(next_abs_state, branch_or_exit_idx, [not_taken_pc, taken_pc]);
+              var path_so_far := concatPaths(cur_path, concatPaths(path.0, AbstractPath([branch_abs_state])));
+
+              var taken_pc_work_elem := VerifierWorkElem(branch_or_exit_idx, taken_pc, branch_abs_state, path_so_far);
+              var not_taken_pc_work_elem := VerifierWorkElem(branch_or_exit_idx, not_taken_pc, branch_abs_state, path_so_far);
+
+              worklist := worklist + [taken_pc_work_elem, not_taken_pc_work_elem];
+
+          }
+        case FunctionExit =>
+          ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path.0)]);
+      }
 
       // Reached an exit, pop from the worklist
-      if branch_or_exit_idx >= |prog.stmts| || |path.path| == 0 {
+      /*if branch_or_exit_idx >= |prog.stmts| || |path.0.path| == 0 {
         // Add path to analysis result
-        ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path)]);
+        ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path.0)]);
 
         if |worklist| == 0 {
           // We are done with the exploration
@@ -435,7 +503,7 @@ module SimpleVerifierAnalysis {
         match cur_inst {
           // Should happen only if we ran out of fuel for exploration
           case Assign(_, _) => 
-            ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path)]);
+            ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path.0)]);
           case JmpZero(_ , offset) =>
             // We ended at a branch, we should push the taken branch onto the stack and continue exploring the not taken branch
           has_valid_jump_targets_ok(prog.stmts);
@@ -446,8 +514,8 @@ module SimpleVerifierAnalysis {
           var taken_pc := branch_or_exit_idx as int + offset as int;
 
           // The abstract state at the branch instruction is the same as that of the previous (non-branching) instruction
-          var branch_abs_state := AbstractPathState(path.path[|path.path| - 1].state, branch_or_exit_idx, [not_taken_pc, taken_pc]);
-          var path_so_far := concatPaths(cur_path, concatPaths(path, AbstractPath([branch_abs_state])));
+          var branch_abs_state := AbstractPathState(path.0.path[|path.0.path| - 1].state, branch_or_exit_idx, [not_taken_pc, taken_pc]);
+          var path_so_far := concatPaths(cur_path, concatPaths(path.0, AbstractPath([branch_abs_state])));
 
           var last_work_elem := VerifierWorkElem(branch_or_exit_idx, taken_pc, branch_abs_state, path_so_far);
           worklist := worklist + [last_work_elem];
@@ -459,10 +527,10 @@ module SimpleVerifierAnalysis {
 
         }
         
-      }
+      }*/
       
       // Decrement 1 to ensure termination
-      fuel := fuel - |path.path| - 1;
+      fuel := fuel - |path.0.path| - 1;
     }
 
     return ret;
