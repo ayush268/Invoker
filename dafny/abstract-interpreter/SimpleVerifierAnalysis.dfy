@@ -20,6 +20,8 @@ module SimpleVerifierAnalysis {
 
   datatype InstructionType = BranchInstruction | FunctionExit
 
+  datatype ConcretePath = ConcretePath(path: seq<PathState>)
+
   predicate state_equal(s1: E.State, s2: E.State) {
     forall r : Reg :: s1(r) == s2(r)
   }
@@ -535,6 +537,51 @@ module SimpleVerifierAnalysis {
 
     return ret;
   }
+
+  // Concrete path exploration
+  method verifierExploreConcretePath(prog: Program, initial_conc_state: E.State, fuel: nat) returns (y : ConcretePath) 
+    requires fuel > 0
+    requires |prog.stmts| > 0
+    requires programWellFormed(prog)
+    requires has_valid_jump_targets(prog.stmts, 0)
+  {
+    var cur_pc := 0;
+    var cur_state := initial_conc_state;
+    var ret := ConcretePath([PathState(cur_state, cur_pc)]);
+    var fuel := fuel;
+    
+    while fuel > 0 
+      invariant 0 <= cur_pc <= |prog.stmts|
+    {
+
+      if cur_pc == |prog.stmts| {
+        break;
+      }
+
+      var cur_inst := prog.stmts[cur_pc];
+      match cur_inst {
+        case Assign(r, e) => 
+          var e' := E.expr_eval(cur_state, e);
+          match e' {
+            case Some(v) =>
+              cur_state := E.update_state(cur_state, r, v);
+              cur_pc := cur_pc + 1;
+            case None =>
+              ret := ConcretePath(ret.path + [PathState(cur_state, cur_pc)]);
+              break;
+          }
+        case JmpZero(r, offset) =>
+          var jmp := if cur_state(r) == 0 then offset else 1;
+          has_valid_jump_targets_ok(prog.stmts);
+          assert cur_pc + jmp as int <= |prog.stmts|;
+          cur_pc := cur_pc + jmp as int;
+      }
+
+      fuel := fuel - 1;
+    }
+
+    return ret;
+  }  
 
   
 
