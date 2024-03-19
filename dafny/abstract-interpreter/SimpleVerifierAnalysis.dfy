@@ -183,8 +183,6 @@ module SimpleVerifierAnalysis {
     (state_included(path_state.state, abs_path_state.state))
   }
 
-  
-
   method explore_abstract_paths(prog: Program, fuel: int, init_conc_state: PathState, init_abstract_state: AbstractPathState)
     requires fuel >= 0
     requires |prog.stmts| > 0
@@ -395,7 +393,7 @@ module SimpleVerifierAnalysis {
   // Each path may not even be complete as in it does not result in an exit instruction
   //    A
   //    |
-  //    B
+  //    Binitial_conc_state: E.State
   //   / \
   //  C   D
   // Theorem to prove 1: For all concrete initial states c, path(c) should be contained
@@ -499,10 +497,7 @@ module SimpleVerifierAnalysis {
         }
 
       } else {
-        // Test what instruction we got and explore accordingly
-        var cur_inst := prog.stmts[branch_or_exit_idx];
-        assert branch_or_exit_idx < |prog.stmts|;
-        match cur_inst {
+  predicate path_state_included(path_state: P
           // Should happen only if we ran out of fuel for exploration
           case Assign(_, _) => 
             ret := AnalysisResult(ret.paths + [concatPaths(cur_path, path.0)]);
@@ -583,6 +578,10 @@ module SimpleVerifierAnalysis {
     return ret;
   }  
 
-  
+  lemma concretePathContainedInAbstractPath(prog: Program, initial_conc_state: E.State, initial_abstract_state: AbstractState, fuel: nat)
+    requires state_included(initial_conc_state, initial_abstract_state)
+  {
+    assert |verifierExploreConcretePath(prog, initial_conc_state, fuel).path| == |verifierExplorePaths(prog, initial_abstract_state, fuel).path|;
+  }
 
 }
