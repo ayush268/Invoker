@@ -393,7 +393,7 @@ module SimpleVerifierAnalysis {
   // Each path may not even be complete as in it does not result in an exit instruction
   //    A
   //    |
-  //    Binitial_conc_state: E.State
+  //    B
   //   / \
   //  C   D
   // Theorem to prove 1: For all concrete initial states c, path(c) should be contained
@@ -401,8 +401,22 @@ module SimpleVerifierAnalysis {
   // Theorem to prove 2: The Analysis result should be implied as per the correctness of
   // a general abstract interpretation procedure over the same interval domain
 
-  // TODO: Need to find a datastructure for holding the program paths
-  // TODO: The initial abstract state is completely unconstrained for now
+
+  // Completeness: Makes sure that all the possible paths of a program are explored
+  // Theorem 1.1: The element on the top of the worklist, represents an abstract path fragment (A) ending at a branching instruction or exit
+  // Theorem 1.2: The element on the top of the worklist, represents an abstract path fragment (A) such that the pc values traced out by A respects
+  // the possible pc values given by verifierExploreConcretePath for any concrete path defined by an initial concrete state C contained in the initial abstract state
+  // Theorem 1.3: The loop body adds the abstract path to the AnalysisResult on a function exit
+  // Theorem 1.3: The loop body enqueues both the possible branch outcomes on the worklist, 
+  // Theorem 1.4: The loop body extends the abstract path on the top of the stack by a basic block defined by exploreTillBranchOrExit
+  // Theorem 1.5: exploreTillBranchOrExit respects the program pc values in a basic block defined by verifierExploreConcretePath
+
+  // Soundness: Make sure that we over-approximate each possible concrete path
+  // Theorem 2: Given an initial abstract state a, all the concrete states c contained in the abstract state a
+  // form concrete paths path(c) and these concrete paths are contained in the abstract path traced out by verifierExplorePaths
+  // path(c) is defined wrt the concrete semantics defined in verifierExploreConcretePath
+  // Corollary: An abstract state containing all the possible initial concrete states, should explore an abstract path that contains all
+  // possible executions of the program
   method verifierExplorePaths(prog: Program, fuel: int) returns (y : AnalysisResult)
     requires fuel > 0
     requires |prog.stmts| > 0
@@ -416,7 +430,7 @@ module SimpleVerifierAnalysis {
     var cur_inst_idx: nat := 0;
     var prev_inst_idx: nat := 0;
 
-    // TODO: Change the loop to pop at the beginning
+
     var worklist: seq<VerifierWorkElem> := [VerifierWorkElem(0, 0, cur_state, AbstractPath([]))];
     var cur_path := AbstractPath([]);
 
@@ -534,54 +548,67 @@ module SimpleVerifierAnalysis {
   }
 
   // Concrete path exploration
-  method verifierExploreConcretePath(prog: Program, initial_conc_state: E.State, fuel: nat) returns (y : ConcretePath) 
-    requires fuel > 0
+  // Return None if we run out of fuel
+  function verifierExploreConcretePath(prog: Program, pc: nat, initial_conc_state: E.State, fuel: nat) : Option<ConcretePath>
+    requires fuel >= 0
     requires |prog.stmts| > 0
+    requires pc <= |prog.stmts|
     requires programWellFormed(prog)
     requires has_valid_jump_targets(prog.stmts, 0)
-  {
-    var cur_pc := 0;
+    decreases fuel
+  { 
+    var cur_pc := pc;
     var cur_state := initial_conc_state;
     var ret := ConcretePath([PathState(cur_state, cur_pc)]);
     var fuel := fuel;
-    
-    while fuel > 0 
-      invariant 0 <= cur_pc <= |prog.stmts|
-    {
 
-      if cur_pc == |prog.stmts| {
-        break;
-      }
-
+    if cur_pc == |prog.stmts| then
+        Some(ret)
+    else if fuel == 0 then
+        None
+    else
       var cur_inst := prog.stmts[cur_pc];
       match cur_inst {
         case Assign(r, e) => 
           var e' := E.expr_eval(cur_state, e);
           match e' {
             case Some(v) =>
-              cur_state := E.update_state(cur_state, r, v);
-              cur_pc := cur_pc + 1;
+              var cur_state := E.update_state(cur_state, r, v);
+              var cur_pc := cur_pc + 1;
+              var rest_of_path := verifierExploreConcretePath(prog, cur_pc, cur_state, fuel - 1);
+              match rest_of_path {
+                case Some(conc_path) =>
+                  var ret := ConcretePath(ret.path + conc_path.path);
+                  Some(ret)
+                case None =>
+                  None
+              }
             case None =>
-              ret := ConcretePath(ret.path + [PathState(cur_state, cur_pc)]);
-              break;
+              // Return a partial path even if there is an error state
+              var ret := ConcretePath(ret.path + [PathState(cur_state, cur_pc)]);
+              Some(ret)
           }
         case JmpZero(r, offset) =>
           var jmp := if cur_state(r) == 0 then offset else 1;
           has_valid_jump_targets_ok(prog.stmts);
           assert cur_pc + jmp as int <= |prog.stmts|;
-          cur_pc := cur_pc + jmp as int;
+          var cur_pc := cur_pc + jmp as int;
+          var rest_of_path := verifierExploreConcretePath(prog, cur_pc, cur_state, fuel - 1);
+          match rest_of_path {
+            case Some(conc_path) =>
+              var ret := ConcretePath(ret.path + conc_path.path);
+              Some(ret)
+            case None =>
+              None
+          }
       }
 
-      fuel := fuel - 1;
-    }
-
-    return ret;
   }  
 
-  lemma concretePathContainedInAbstractPath(prog: Program, initial_conc_state: E.State, initial_abstract_state: AbstractState, fuel: nat)
-    requires state_included(initial_conc_state, initial_abstract_state)
-  {
-    assert |verifierExploreConcretePath(prog, initial_conc_state, fuel).path| == |verifierExplorePaths(prog, initial_abstract_state, fuel).path|;
-  }
+  //lemma concretePathContainedInAbstractPath(prog: Program, initial_conc_state: E.State, initial_abstract_state: AbstractState, fuel: nat)
+  //  requires state_included(initial_conc_state, initial_abstract_state)
+  //{
+  //  assert |verifierExploreConcretePath(prog, 0, initial_conc_state, fuel).path| == |verifierExplorePaths(prog, initial_abstract_state, fuel).path|;
+  //}
 
 }
