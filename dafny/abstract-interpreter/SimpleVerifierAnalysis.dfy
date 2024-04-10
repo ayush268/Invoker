@@ -378,7 +378,47 @@ module SimpleVerifierAnalysis {
     AbstractPath(path1.path + path2.path)
   }
 
-  // TODO: Write a method for state space exploration and then reason about the datastructure that is used
+  // Prove Theorem 1.5:
+  predicate isBranchInstruction(stmt: Stmt) {
+      stmt.JmpZero?
+  }
+
+  predicate equalPathBasicBlockPCValues(prog: Program, abs_path: AbstractPath, concrete_path: ConcretePath)
+  {
+    forall pc: nat :: (0 <= pc < |abs_path.path|) && (0 <= pc < |concrete_path.path|) ==> abs_path.path[pc].pc == concrete_path.path[pc].pc
+  }
+
+  // With fuel = |prog.stmts| + 1 we are guaranteed to hit a branch or a program exit (return)
+  predicate concretePathReachesValidBasicBlock(prog: Program, pc: nat, conc_state: E.State) 
+    requires |prog.stmts| > 0
+    requires pc <= |prog.stmts|
+    requires programWellFormed(prog)
+    requires has_valid_jump_targets(prog.stmts, 0)
+  {
+    verifierExploreConcretePath(prog, pc, conc_state, |prog.stmts| + 1).Some?
+  }
+
+  function unwrap_path(path: Option<ConcretePath>): ConcretePath 
+    requires path.Some?
+  {
+    match path {
+      case Some(p) => p
+    }
+  }
+
+  // exploreTillBranchOrExit respects the program pc values in a basic block defined by verifierExploreConcretePath
+  lemma exploreTillBranchOrExitRespectsBasicBlock(prog: Program, abs_state: AbstractState, conc_state: E.State, pc: nat)
+    requires pc < |prog.stmts|
+    requires state_included(conc_state, abs_state)
+    requires has_valid_jump_targets(prog.stmts, 0)
+    //ensures forall pc : nat :: (pc < |prog.stmts|) && (concretePathReachesValidBasicBlock(prog, pc, conc_state)) ==> 
+     // equalPathBasicBlockPCValues(prog, exploreTillBranchOrExit(prog, pc, abs_state).0, 
+       // unwrap_path(verifierExploreConcretePath(prog, pc, conc_state, |prog.stmts| + 1)))
+  {
+    //var conc_path := verifierExploreConcretePath(prog, pc, conc_state, |prog.stmts| + 1);
+    //assert conc_path.Some? ==> exists pc: nat :: pc < |unwrap_path(conc_path).path| && prog.stmts[unwrap_path(conc_path).path[pc].pc].JmpZero?;
+  }
+
   // Each sequence on the stack is a valid path --> need to abstract eval and real eval the path
 
 
@@ -401,15 +441,18 @@ module SimpleVerifierAnalysis {
   // Theorem to prove 2: The Analysis result should be implied as per the correctness of
   // a general abstract interpretation procedure over the same interval domain
 
-
   // Completeness: Makes sure that all the possible paths of a program are explored
-  // Theorem 1.1: The element on the top of the worklist, represents an abstract path fragment (A) ending at a branching instruction or exit
-  // Theorem 1.2: The element on the top of the worklist, represents an abstract path fragment (A) such that the pc values traced out by A respects
+  // Theorem 1.1: All the elements on the worklist, represent an abstract path fragment (A) ending at a branching instruction or exit
+  // Theorem 1.2: All the elements on the worklist, represent an abstract path fragment (A) such that the pc values traced out by A respects
   // the possible pc values given by verifierExploreConcretePath for any concrete path defined by an initial concrete state C contained in the initial abstract state
   // Theorem 1.3: The loop body adds the abstract path to the AnalysisResult on a function exit
-  // Theorem 1.3: The loop body enqueues both the possible branch outcomes on the worklist, 
+  // Theorem 1.3: The loop body enqueues both the possible branch outcomes on the worklist
   // Theorem 1.4: The loop body extends the abstract path on the top of the stack by a basic block defined by exploreTillBranchOrExit
   // Theorem 1.5: exploreTillBranchOrExit respects the program pc values in a basic block defined by verifierExploreConcretePath
+  
+  // Theorem 1.6: Each explored path is included in the AnalysisResult
+  // Theorem 1.7: The worklist contains the prefixes of all unexplored paths in the program at any iteration
+  // Thorem 1.8: The paths in the worklist and the unexplored paths in the worklist together consitute all the reachable paths in the program
 
   // Soundness: Make sure that we over-approximate each possible concrete path
   // Theorem 2: Given an initial abstract state a, all the concrete states c contained in the abstract state a
@@ -555,6 +598,14 @@ module SimpleVerifierAnalysis {
     requires pc <= |prog.stmts|
     requires programWellFormed(prog)
     requires has_valid_jump_targets(prog.stmts, 0)
+    ensures verifierExploreConcretePath(prog, pc, initial_conc_state, fuel).Some? ==> 
+        |unwrap_path(verifierExploreConcretePath(prog, pc, initial_conc_state, fuel)).path| > 0
+    ensures verifierExploreConcretePath(prog, pc, initial_conc_state, fuel).Some? ==> 
+        unwrap_path(verifierExploreConcretePath(prog, pc, initial_conc_state, fuel)).path[0].pc <= |prog.stmts|
+    //  (forall idx: nat :: idx < |unwrap_path(verifierExploreConcretePath(prog, pc, initial_conc_state, fuel)).path| ==> 
+    //    unwrap_path(verifierExploreConcretePath(prog, pc, initial_conc_state, fuel)).path[idx].pc <= |prog.stmts|
+    //  )
+
     decreases fuel
   { 
     var cur_pc := pc;
@@ -563,10 +614,12 @@ module SimpleVerifierAnalysis {
     var fuel := fuel;
 
     if cur_pc == |prog.stmts| then
+        assert forall idx: nat :: idx < |ret.path| ==> ret.path[idx].pc <= |prog.stmts|;
         Some(ret)
     else if fuel == 0 then
         None
     else
+      
       var cur_inst := prog.stmts[cur_pc];
       match cur_inst {
         case Assign(r, e) => 
@@ -575,17 +628,26 @@ module SimpleVerifierAnalysis {
             case Some(v) =>
               var cur_state := E.update_state(cur_state, r, v);
               var cur_pc := cur_pc + 1;
+              assert cur_pc <= |prog.stmts|;
+              assert cur_pc == |prog.stmts| ==> verifierExploreConcretePath(prog, cur_pc, cur_state, fuel - 1).Some?;
               var rest_of_path := verifierExploreConcretePath(prog, cur_pc, cur_state, fuel - 1);
+              assert forall idx: nat :: idx < |ret.path| ==> ret.path[idx].pc <= |prog.stmts|;
               match rest_of_path {
                 case Some(conc_path) =>
+                  assert |ret.path| == 1;
+                  assert ret.path[0].pc <= |prog.stmts|;
+                  assert conc_path.path[0].pc == cur_pc;
                   var ret := ConcretePath(ret.path + conc_path.path);
+                  assert rest_of_path.Some?;
+                  assert forall idx: nat :: idx < |conc_path.path| ==> conc_path.path[idx].pc <= |prog.stmts|;
                   Some(ret)
                 case None =>
                   None
               }
             case None =>
               // Return a partial path even if there is an error state
-              var ret := ConcretePath(ret.path + [PathState(cur_state, cur_pc)]);
+              var ret := ConcretePath(ret.path);
+              assert ret.path[0].pc <= |prog.stmts|;
               Some(ret)
           }
         case JmpZero(r, offset) =>
@@ -593,9 +655,15 @@ module SimpleVerifierAnalysis {
           has_valid_jump_targets_ok(prog.stmts);
           assert cur_pc + jmp as int <= |prog.stmts|;
           var cur_pc := cur_pc + jmp as int;
+          assert cur_pc <= |prog.stmts|;
           var rest_of_path := verifierExploreConcretePath(prog, cur_pc, cur_state, fuel - 1);
           match rest_of_path {
             case Some(conc_path) =>
+              assert conc_path.path[0].pc == cur_pc;
+              assert |ret.path| == 1;
+              assert ret.path[0].pc <= |prog.stmts|;
+              assert forall idx: nat :: (idx < |conc_path.path|) && (idx + 1 < |conc_path.path|) && (0 <= conc_path.path[idx].pc < |prog.stmts|) && 
+                  (prog.stmts[conc_path.path[idx].pc].Assign?) ==> conc_path.path[idx + 1].pc == conc_path.path[idx].pc + 1;
               var ret := ConcretePath(ret.path + conc_path.path);
               Some(ret)
             case None =>
