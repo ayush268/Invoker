@@ -7,6 +7,7 @@ module SimpleVerifierAnalysis {
   import opened AbstractEval
   import opened Ints
   import opened BoundedInts
+  import opened AbstractEvalProof
 
   datatype PathState = PathState(state: E.State, pc: int)
 
@@ -326,9 +327,35 @@ module SimpleVerifierAnalysis {
     AbstractPath(absPath.path + [state])
   }
 
+  function concretePathFragmentTillBranchOrExit(prog: Program, conc_path: ConcretePath) : (r: ConcretePath)
+    requires forall idx: nat :: idx < |conc_path.path| ==> 0 <= conc_path.path[idx].pc <= |prog.stmts|
+    decreases |conc_path.path|
+  {
+    if |conc_path.path| == 0 then
+      ConcretePath([])
+    else if conc_path.path[0].pc == |prog.stmts| then
+      ConcretePath([])
+    else
+      var pc : nat := conc_path.path[0].pc;
+      assert pc < |prog.stmts|;
+
+      var cur_inst := prog.stmts[pc];
+      match cur_inst {
+        case JmpZero(_, _) => ConcretePath([])
+        case Assign(_, _) => 
+          var rest_of_path := concretePathFragmentTillBranchOrExit(prog, ConcretePath(conc_path.path[1..]));
+          ConcretePath([conc_path.path[0]] + rest_of_path.path)
+      }
+  }
+
+  //predicate equalPCValues
+
   // Returns the path along with whether the last instructucion was a branch or an exit
   function exploreTillBranchOrExit(prog: Program, inst_idx: nat, abs_state: AbstractState) : (AbstractPath, InstructionType)
     requires |prog.stmts| > 0
+    requires inst_idx <= |prog.stmts|
+    requires programWellFormed(prog)
+    requires has_valid_jump_targets(prog.stmts, 0)
     // Make sure that we stay within bounds of the program
     ensures inst_idx < |prog.stmts| ==> inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| <= |prog.stmts|
     ensures inst_idx < |prog.stmts| && prog.stmts[inst_idx].JmpZero? ==> |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| == 0
@@ -345,12 +372,19 @@ module SimpleVerifierAnalysis {
     ensures inst_idx + |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| == |prog.stmts| ==>
               exploreTillBranchOrExit(prog, inst_idx, abs_state).1.FunctionExit? && (forall i :: inst_idx <= i < |prog.stmts| ==> !prog.stmts[i].JmpZero?) &&
               (forall i :: 0 <= i < |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| < |prog.stmts| ==> !prog.stmts[exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path[i].pc].JmpZero?)
+    
+    /*ensures forall conc_state: E.State :: 
+      (state_included(conc_state, abs_state) &&
+        verifierExploreConcretePath(prog, inst_idx, conc_state, |prog.stmts| + 1).Some?) ==> (
+          ( var r := verifierExploreConcretePath(prog, inst_idx, conc_state, |prog.stmts| + 1).v; &&
+            |concretePathFragmentTillBranchOrExit(prog, r).path| == |exploreTillBranchOrExit(prog, inst_idx, abs_state).0.path| )
+        )*/
 
     decreases |prog.stmts| - inst_idx
   {
     var empty_path : AbstractPath := AbstractPath([]);
 
-    if inst_idx >= |prog.stmts| then
+    if inst_idx == |prog.stmts| then
       assert |empty_path.path| == 0;
       (empty_path, FunctionExit)
     else
@@ -362,6 +396,8 @@ module SimpleVerifierAnalysis {
         case Assign(r, e) =>
           var v := AbstractEval.expr_eval(abs_state, e);
           var new_state := AbstractEval.update_state(abs_state, r, v);
+          
+          //assert forall conc_state: E.State :: state_included(conc_state, abs_state) ==> state_included(conc_state, new_state);
 
           assert inst_idx < |prog.stmts|;
           var path_state := AbstractPathState(new_state, inst_idx, []);
@@ -411,10 +447,12 @@ module SimpleVerifierAnalysis {
     requires pc < |prog.stmts|
     requires state_included(conc_state, abs_state)
     requires has_valid_jump_targets(prog.stmts, 0)
-    //ensures forall pc : nat :: (pc < |prog.stmts|) && (concretePathReachesValidBasicBlock(prog, pc, conc_state)) ==>
+    // ensures forall pc : nat :: (pc < |prog.stmts|) && (concretePathReachesValidBasicBlock(prog, pc, conc_state)) ==>
     // equalPathBasicBlockPCValues(prog, exploreTillBranchOrExit(prog, pc, abs_state).0,
     // unwrap_path(verifierExploreConcretePath(prog, pc, conc_state, |prog.stmts| + 1)))
+    ensures |exploreTillBranchOrExit(prog, pc, abs_state).0.path| == |exploreTillBranchOrExitConcrete(prog, pc, conc_state).path|
   {
+    // assert pc != |prog.stmts| ==> exploreTillBranchOrExit(prog, pc, abs_state).0.path[0].pc == exploreTillBranchOrExitConcrete(prog, pc, conc_state).path[0].pc;
     //var conc_path := verifierExploreConcretePath(prog, pc, conc_state, |prog.stmts| + 1);
     //assert conc_path.Some? ==> exists pc: nat :: pc < |unwrap_path(conc_path).path| && prog.stmts[unwrap_path(conc_path).path[pc].pc].JmpZero?;
   }
@@ -590,6 +628,142 @@ module SimpleVerifierAnalysis {
     return ret;
   }
 
+  // TODO: connect exploreTillBranchOrExit to this
+  function exploreTillBranchOrExitConcrete(prog: Program, pc: nat, conc_state: E.State): (r: ConcretePath)
+    requires |prog.stmts| > 0
+    requires pc <= |prog.stmts|
+    requires programWellFormed(prog)
+    requires has_valid_jump_targets(prog.stmts, 0)
+
+    decreases |prog.stmts| - pc
+    ensures (var t := exploreTillBranchOrExitConcrete(prog, pc, conc_state);
+              && var u := verifierExploreConcretePathFuel(prog, pc, conc_state, |t.path|);
+              && |u.path| == |t.path|)
+    ensures (var t := exploreTillBranchOrExitConcrete(prog, pc, conc_state);
+              && var u := verifierExploreConcretePathFuel(prog, pc, conc_state, |t.path|);
+              && forall idx: nat :: idx < |u.path| ==> 
+                                (t.path[idx].pc == u.path[idx].pc)
+                                && state_equal(t.path[idx].state, u.path[idx].state))
+  {
+    var empty_path : ConcretePath := ConcretePath([]);
+    var cur_pc := pc;
+    var cur_state := conc_state;
+    var ret := ConcretePath([PathState(cur_state, cur_pc)]);
+
+    if pc == |prog.stmts| then
+      assert |empty_path.path| == 0;
+      //ConcretePath([PathState(conc_state, pc)])
+      ConcretePath([])
+    else
+
+      var cur_inst := prog.stmts[pc];
+
+      match cur_inst {
+        case JmpZero(_, _) => empty_path
+        case Assign(r, e) =>
+          match E.expr_eval(conc_state, e) {
+            case Some(v) => 
+              var new_state := E.update_state(conc_state, r, v);
+          
+              //assert forall conc_state: E.State :: state_included(conc_state, abs_state) ==> state_included(conc_state, new_state);
+
+              assert pc < |prog.stmts|;
+              //var path_state := PathState(new_state, pc);
+
+              var rest_of_path := exploreTillBranchOrExitConcrete(prog, pc + 1, new_state);
+              ConcretePath(ret.path + rest_of_path.path)
+            case None =>
+              ConcretePath([PathState(conc_state, pc)])
+          }
+      }
+  }
+
+  // Concrete path exploration returning a trace of a concrete path whose length is bounded by fuel
+  function verifierExploreConcretePathFuel(prog: Program, pc: nat, initial_conc_state: E.State, fuel: nat) : (r: ConcretePath)
+    requires fuel >= 0
+    requires |prog.stmts| > 0
+    requires pc <= |prog.stmts|
+    requires programWellFormed(prog)
+    requires has_valid_jump_targets(prog.stmts, 0)
+    ensures (var ret := r;
+              && ((|ret.path| > 0) ==> (ret.path[0].pc <= |prog.stmts|))
+              && (forall idx: nat :: idx < |ret.path| ==> 0 <= ret.path[idx].pc <= |prog.stmts|))
+    ensures (var t := verifierExploreConcretePath(prog, pc, initial_conc_state, fuel);
+              && var u := verifierExploreConcretePathFuel(prog, pc, initial_conc_state, fuel);
+              && t.Some? ==> (|t.v.path| == |u.path|))
+
+    // Prove that verifierExploreConcretePathFuel returns a trace of an actual terminating program state bounded in length by fuel
+    ensures (var t := verifierExploreConcretePath(prog, pc, initial_conc_state, fuel);
+              && var u := verifierExploreConcretePathFuel(prog, pc, initial_conc_state, fuel);
+              && t.Some? ==> (forall idx: nat :: idx < |t.v.path| ==> 
+                                t.v.path[idx].pc == u.path[idx].pc 
+                                && state_equal(t.v.path[idx].state, u.path[idx].state)))
+    decreases fuel
+  {
+    var cur_pc := pc;
+    var cur_state := initial_conc_state;
+    var ret := ConcretePath([PathState(cur_state, cur_pc)]);
+    var fuel := fuel;
+
+    if cur_pc == |prog.stmts| then
+      assert forall idx: nat :: idx < |ret.path| ==> ret.path[idx].pc <= |prog.stmts|;
+      //ret
+      ConcretePath([])
+    else if fuel == 0 then
+      //ret
+      ConcretePath([])
+    else
+
+      var cur_inst := prog.stmts[cur_pc];
+      match cur_inst {
+        case Assign(r, e) =>
+          var e' := E.expr_eval(cur_state, e);
+          match e' {
+            case Some(v) =>
+              var cur_state := E.update_state(cur_state, r, v);
+              var cur_pc := cur_pc + 1;
+              assert cur_pc <= |prog.stmts|;
+              var rest_of_path := verifierExploreConcretePathFuel(prog, cur_pc, cur_state, fuel - 1);
+              assert forall idx: nat :: idx < |ret.path| ==> ret.path[idx].pc <= |prog.stmts|;
+
+              assert |ret.path| == 1;
+              assert ret.path[0].pc <= |prog.stmts|;
+              //assert rest_of_path.path[0].pc == cur_pc;
+              var ret := ConcretePath(ret.path + rest_of_path.path);
+              
+              assert forall idx: nat :: idx < |rest_of_path.path| ==> rest_of_path.path[idx].pc <= |prog.stmts|;
+              ret
+
+            case None =>
+              // Return a partial path even if there is an error state
+              var ret := ConcretePath(ret.path);
+              assert ret.path[0].pc <= |prog.stmts|;
+              ret
+          }
+        case JmpZero(r, offset) =>
+          var jmp := if cur_state(r) == 0 then offset else 1;
+          has_valid_jump_targets_ok(prog.stmts);
+          assert cur_pc + jmp as int <= |prog.stmts|;
+          var cur_pc := cur_pc + jmp as int;
+          assert cur_pc <= |prog.stmts|;
+          var rest_of_path := verifierExploreConcretePathFuel(prog, cur_pc, cur_state, fuel - 1);
+
+
+          //assert rest_of_path.path[0].pc == cur_pc;
+          assert |ret.path| == 1;
+          assert ret.path[0].pc <= |prog.stmts|;
+              // assert forall idx: nat :: (idx < |conc_path.path|)
+              //                           && (idx + 1 < |conc_path.path|)
+              //                           && (0 <= conc_path.path[idx].pc < |prog.stmts|)
+              //                           && (prog.stmts[conc_path.path[idx].pc].Assign?)
+              //                           ==> conc_path.path[idx + 1].pc == conc_path.path[idx].pc + 1;
+          var ret := ConcretePath(ret.path + rest_of_path.path);
+          ret
+
+      }
+
+  }
+
   // Concrete path exploration
   // Return None if we run out of fuel
   function verifierExploreConcretePath(prog: Program, pc: nat, initial_conc_state: E.State, fuel: nat) : (r:Option<ConcretePath>)
@@ -600,13 +774,13 @@ module SimpleVerifierAnalysis {
     requires has_valid_jump_targets(prog.stmts, 0)
     ensures r.Some? ==>
               (var ret := r.v;
-               && |ret.path| > 0
-               && ret.path[0].pc <= |prog.stmts|
-               && forall idx: nat :: idx < |ret.path| ==> ret.path[idx].pc <= |prog.stmts|)
+               //&& |ret.path| > 0
+               //&& ret.path[0].pc <= |prog.stmts|
+               && forall idx: nat :: idx < |ret.path| ==> 0 <= ret.path[idx].pc <= |prog.stmts|)
+    
     //  (forall idx: nat :: idx < |unwrap_path(verifierExploreConcretePath(prog, pc, initial_conc_state, fuel)).path| ==>
     //    unwrap_path(verifierExploreConcretePath(prog, pc, initial_conc_state, fuel)).path[idx].pc <= |prog.stmts|
     //  )
-
     decreases fuel
   {
     var cur_pc := pc;
@@ -616,7 +790,10 @@ module SimpleVerifierAnalysis {
 
     if cur_pc == |prog.stmts| then
       assert forall idx: nat :: idx < |ret.path| ==> ret.path[idx].pc <= |prog.stmts|;
-      Some(ret)
+      //Some(ret)
+      // TODO: Think about whether we need to return the state when pc = |prog.stmts| (the line commented above)
+      // If yes, then change the same line for all the functions above this
+      Some(ConcretePath([]))
     else if fuel == 0 then
       None
     else
@@ -637,7 +814,7 @@ module SimpleVerifierAnalysis {
                 case Some(conc_path) =>
                   assert |ret.path| == 1;
                   assert ret.path[0].pc <= |prog.stmts|;
-                  assert conc_path.path[0].pc == cur_pc;
+                  //assert conc_path.path[0].pc == cur_pc;
                   var ret := ConcretePath(ret.path + conc_path.path);
                   assert rest_of_path.Some?;
                   assert forall idx: nat :: idx < |conc_path.path| ==> conc_path.path[idx].pc <= |prog.stmts|;
@@ -660,7 +837,7 @@ module SimpleVerifierAnalysis {
           var rest_of_path := verifierExploreConcretePath(prog, cur_pc, cur_state, fuel - 1);
           match rest_of_path {
             case Some(conc_path) =>
-              assert conc_path.path[0].pc == cur_pc;
+              //assert conc_path.path[0].pc == cur_pc;
               assert |ret.path| == 1;
               assert ret.path[0].pc <= |prog.stmts|;
               // assert forall idx: nat :: (idx < |conc_path.path|)
