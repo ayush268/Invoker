@@ -68,13 +68,31 @@ module SimpleVerifierAnalysis {
     requires programWellFormed(prog)
     requires has_valid_jump_targets(prog.stmts, 0)
 
-    ensures forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) ==> 
-      |exploreTillBranchOrExit(prog, p.path[0].pc, abs_state).0.path| == |p.path|
+   ensures forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) && p.path[0].pc == pc ==> 
+      |exploreTillBranchOrExit(prog, pc, abs_state).0.path| == |p.path|
+    decreases |prog.stmts| - pc
   {
-    assert forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) ==> 
-      |exploreTillBranchOrExit(prog, p.path[0].pc, abs_state).0.path| > 0;
+    assert forall p: ConcretePath :: (is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) ==> 
+      |exploreTillBranchOrExit(prog, p.path[0].pc, abs_state).0.path| > 0);
     assert forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) ==> 
       exploreTillBranchOrExit(prog, p.path[0].pc, abs_state).0.path[0].pc == p.path[0].pc;
+    if pc == |prog.stmts| {
+      assert forall p: ConcretePath :: !(is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) && p.path[0].pc == pc);
+    } else {
+      var cur_inst := prog.stmts[pc];
+      match cur_inst {
+        case JmpZero(_, _) =>
+          assert forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) && p.path[0].pc == pc ==> 
+          |exploreTillBranchOrExit(prog, pc, abs_state).0.path| == |p.path| == 0;
+        case Assign(_, _) =>
+          var new_state := AbstractEval.stmt_eval(abs_state, cur_inst).0;
+          exploreTillBranchOrExit_pc_ok(prog, pc + 1, new_state);
+          assert |exploreTillBranchOrExit(prog, pc, abs_state).0.path| == 1 + |exploreTillBranchOrExit(prog, pc + 1, new_state).0.path|;
+          //assert forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) && p.path[0].pc == pc
+      }
+      //exploreTillBranchOrExit_pc_ok(prog, pc + 1, abs_state);
+      //match 
+    }
   }
 
   // Returns the path along with whether the last instructucion was a branch or an exit
