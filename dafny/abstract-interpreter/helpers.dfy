@@ -6,8 +6,9 @@ module helpers {
   import opened BoundedInts
   import opened Lang
 
+  // TODO: Should be unsigned addition ?
   function signed_add64(a: uint64, b: uint64): uint64 {
-    (((a as int) + (b as int)) % 0x1_00000000_00000000) as uint64
+    (((a as int) + (b as int)) % 0x1_0000_0000_0000_0000) as uint64
   }
 
   function unsigned_to_signed64(a: uint64): int64 {
@@ -56,7 +57,7 @@ module helpers {
   }
 
   predicate is_branch_instruction(prog: Program, pc: nat) {
-    prog.stmts[pc].JmpZero?
+    pc_in_bounds(prog, pc) && prog.stmts[pc].JmpZero?
   }
 
   // pc in [start, end)

@@ -47,7 +47,9 @@ module ConcreteExecution {
             false
     }
 
-    predicate is_valid_path(prog: Program, path: ConcretePath) {
+    predicate is_valid_path(prog: Program, path: ConcretePath)
+        decreases |path.path|
+    {
         if |path.path| == 0 then
             true
         else if |path.path| == 1 then
@@ -61,6 +63,7 @@ module ConcreteExecution {
         forall idx :: 0 <= idx < |path.path| ==> !is_branch_instruction(prog, path.path[idx].pc)
     }
 
+    // "complete" basic block since the next statement should be end or jump
     predicate is_basic_block_fragment(prog: Program, path: ConcretePath) {
         |path.path| > 0 &&
         is_valid_path(prog, path) && 

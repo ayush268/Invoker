@@ -71,7 +71,9 @@ module parser {
 
   method print_statements(prog: seq<Statement>) {
     var i: int := 0;
-    while i < |prog| {
+    while i < |prog|
+      decreases |prog|-i
+    {
       print prog[i];
       i := i + 1;
     }

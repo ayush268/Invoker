@@ -18,7 +18,12 @@ module stack {
     }
   }
 
-  method pop<T>(stk: stack<T>) returns (elem: Option<T>, res: stack<T>) {
+  method pop<T>(stk: stack<T>) returns (elem: Option<T>, res: stack<T>)
+    ensures (stk == EmptyStack) ==> (elem == None && res == EmptyStack)
+    ensures (stk != EmptyStack) ==> (elem == Some(stk.top))
+    //ensures (stk != EmptyStack && stk.num_elems == 1) ==> (res == EmptyStack)
+    //ensures (stk != EmptyStack && stk.num_elems > 1) ==> (res != EmptyStack && stk.num_elems == res.num_elems+1)
+  {
     match stk {
       case EmptyStack => {
         elem := None();

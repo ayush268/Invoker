@@ -19,7 +19,8 @@ module SimpleVerifierAnalysis {
   datatype AbstractPath = AbstractPath(path: seq<AbstractPathState>)
   datatype AnalysisResult = AnalysisResult(paths: seq<AbstractPath>)
 
-  datatype VerifierState = VerifierState(insn_idx: nat)
+  // TODO: Check where is it needed ?
+  // datatype VerifierState = VerifierState(insn_idx: nat)
   datatype VerifierWorkElem = VerifierWorkElem(prev_inst_idx: nat, inst_idx: nat, verifier_state: AbstractPathState, path: AbstractPath)
 
   datatype InstructionType = BranchInstruction | FunctionExit
@@ -46,6 +47,7 @@ module SimpleVerifierAnalysis {
     forall r: Reg :: reg_included(env(r), abs.rs(r))
   }
 
+  // TODO: check
   predicate programWellFormed(prog: Program) {
     true
   }
@@ -63,13 +65,16 @@ module SimpleVerifierAnalysis {
   }
 
   lemma exploreTillBranchOrExit_pc_ok(prog: Program, pc: nat, abs_state: AbstractState)
+    // TODO: It can be zero as well right ? Probably change the condition below
     requires |prog.stmts| > 0
     requires pc <= |prog.stmts|
-    requires programWellFormed(prog)
+    // requires programWellFormed(prog)
     requires has_valid_jump_targets(prog.stmts, 0)
 
-   ensures forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) && p.path[0].pc == pc ==> 
+    // TODO: need to define p properly, seems too open-ended right now, hence failing verification
+    ensures forall p: ConcretePath :: is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) && p.path[0].pc == pc ==> 
       |exploreTillBranchOrExit(prog, pc, abs_state).0.path| == |p.path|
+
     decreases |prog.stmts| - pc
   {
     assert forall p: ConcretePath :: (is_basic_block_fragment(prog, p) && state_included(p.path[0].state, abs_state) ==> 
@@ -96,14 +101,17 @@ module SimpleVerifierAnalysis {
   }
 
   // Returns the path along with whether the last instructucion was a branch or an exit
+  // The path is the from current pc to the last instrunction before branch or exit
   function exploreTillBranchOrExit(prog: Program, pc: nat, abs_state: AbstractState) : (r : (AbstractPath, InstructionType))
+    // TODO: It can be zero as well right ? Probably change the condition below
     requires |prog.stmts| > 0
     requires pc <= |prog.stmts|
-    requires programWellFormed(prog)
+    // requires programWellFormed(prog)
     requires has_valid_jump_targets(prog.stmts, 0)
 
     // Make sure that we stay within bounds of the program
     ensures pc_in_bounds(prog, pc) ==> pc_offset_in_bounds_or_at_end(prog, pc, |r.0.path|)
+    // in_bounds_path(idx, r.0.path) => 0 <= idx < |r.0.path|
     ensures (forall idx :: in_bounds_path(idx, r.0.path) ==> r.0.path[idx].pc == pc + idx)
 
     // Make sure that instruction following the path is a branch instruction and everything in between is not a branch
@@ -125,8 +133,8 @@ module SimpleVerifierAnalysis {
 
     if pc == |prog.stmts| then
       (empty_path, FunctionExit)
-    else
 
+    else
       var cur_inst := prog.stmts[pc];
 
       match cur_inst {
@@ -136,7 +144,7 @@ module SimpleVerifierAnalysis {
           var new_state := AbstractEval.stmt_eval(abs_state, cur_inst);
           
           //assert forall conc_state: E.State :: state_included(conc_state, abs_state) ==> state_included(conc_state, new_state);
-
+          // Below will always be true (checked in requires)
           assert pc < |prog.stmts|;
           assert new_state.1 == {1};
 
@@ -145,7 +153,6 @@ module SimpleVerifierAnalysis {
           var rest_of_path := exploreTillBranchOrExit(prog, pc + 1, new_state.0);
           (AbstractPath([path_state] + rest_of_path.0.path), rest_of_path.1)
       }
-
 
     //ret
   }
@@ -202,9 +209,10 @@ module SimpleVerifierAnalysis {
   // Corollary: An abstract state containing all the possible initial concrete states, should explore an abstract path that contains all
   // possible executions of the program
   method verifierExplorePaths(prog: Program, fuel: int) returns (y : AnalysisResult)
+    // TODO: These values of zero should be allowed - base case
     requires fuel > 0
     requires |prog.stmts| > 0
-    requires programWellFormed(prog)
+    // requires programWellFormed(prog)
     requires has_valid_jump_targets(prog.stmts, 0)
   {
     var ret := AnalysisResult([]);
@@ -218,9 +226,10 @@ module SimpleVerifierAnalysis {
     var worklist: seq<VerifierWorkElem> := [VerifierWorkElem(0, 0, cur_state, AbstractPath([]))];
     var cur_path := AbstractPath([]);
 
-    assert cur_inst_idx < |prog.stmts|;
-    assert |worklist| == 1;
-    assert forall i :: 0 <= i < |worklist| ==> worklist[i].inst_idx < |prog.stmts|;
+    // Always true asserts
+    //assert cur_inst_idx < |prog.stmts|;
+    //assert |worklist| == 1;
+    //assert forall i :: 0 <= i < |worklist| ==> worklist[i].inst_idx < |prog.stmts|;
 
     while fuel > 0
       invariant forall i :: 0 <= i < |worklist| ==> worklist[i].inst_idx <= |prog.stmts|

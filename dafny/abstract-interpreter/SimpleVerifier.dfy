@@ -1,7 +1,7 @@
 module Ints {
   const U32_BOUND: nat := 0x1_0000_0000
-  newtype u32 = x:int | 0 <= x < 0x1_0000_0000
-  newtype i32 = x: int  | -0x8000_0000 <= x < 0x8000_0000
+  newtype u32 = x: int | 0 <= x < 0x1_0000_0000
+  newtype i32 = x: int | -0x8000_0000 <= x < 0x8000_0000
 }
 
 module Lang {
@@ -34,6 +34,7 @@ module ConcreteEval {
   import opened Ints
   import opened Lang
 
+  // Basically a map in the form of a closure
   type State = Reg -> u32
 
   function update_state(s: State, r0: Reg, v: u32): State {
@@ -151,8 +152,8 @@ module AbstractEval {
 
   // Check that jump targets ss[from..] are valid.
   function has_valid_jump_targets(ss: seq<Stmt>, from: nat): bool
-    decreases |ss|-from
-    requires from <= |ss|
+    decreases |ss| - from
+    requires  from <= |ss|
   {
     if from == |ss| then true
     else (match ss[from] {

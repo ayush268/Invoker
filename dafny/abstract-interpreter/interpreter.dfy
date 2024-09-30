@@ -155,6 +155,7 @@ module eBPFInterpreter {
     requires 0 <= regno < BPF_MAX_REG as uint8
   {
     var frame_regs:= env.cur_state.frame[frameno].regs;
+    // Updating the target reg
     var new_regs := frame_regs[regno := regstate];
     var new_func_state := env.cur_state.frame[frameno].(regs := new_regs);
     var new_frames := env.cur_state.(frame := env.cur_state.frame[frameno := new_func_state]);
@@ -169,7 +170,6 @@ module eBPFInterpreter {
   function markRegUnknown(env: BPFVerifierEnv, regs: seq<BPFRegState>, reg: RegisterOrUnused): BPFVerifierEnv
     requires |regs| == BPF_MAX_REG
     requires env.cur_state.curframe as int < |env.cur_state.frame|
-    requires |regs| == BPF_MAX_REG
     requires |curRegs(env)| == BPF_MAX_REG
   {
     var regno := RegisterToInt(reg);
